@@ -16,6 +16,7 @@ import type {
   Rule,
   Authentication,
   DistributedConfig,
+  SchemaHint,
 } from './types/config.js';
 
 // Handle ESM/CJS interop for ajv-formats using require
@@ -379,6 +380,22 @@ const performSecurityValidation = (config: Config): void => {
     checkForDuplicates(config.rules.focus || [], 'focus');
     checkForConflicts(config.rules.avoid, config.rules.focus);
   }
+
+  if (config.context?.schemas) {
+    config.context.schemas.forEach((schema, index) => {
+      for (const pattern of DANGEROUS_PATTERNS) {
+        if (pattern.test(schema.url)) {
+          throw new PentestError(
+            `context.schemas[${index}].url contains potentially dangerous pattern: ${pattern.source}`,
+            'config',
+            false,
+            { field: `context.schemas[${index}].url`, pattern: pattern.source },
+            ErrorCode.CONFIG_VALIDATION_FAILED
+          );
+        }
+      }
+    });
+  }
 };
 
 const validateRulesSecurity = (rules: Rule[] | undefined, ruleType: string): void => {
@@ -532,15 +549,22 @@ const sanitizeRule = (rule: Rule): Rule => {
   };
 };
 
+const sanitizeSchema = (schema: SchemaHint): SchemaHint => ({
+  url: schema.url.trim(),
+  type: schema.type,
+});
+
 export const distributeConfig = (config: Config | null): DistributedConfig => {
   const avoid = config?.rules?.avoid || [];
   const focus = config?.rules?.focus || [];
   const authentication = config?.authentication || null;
+  const schemas = config?.context?.schemas || [];
 
   return {
     avoid: avoid.map(sanitizeRule),
     focus: focus.map(sanitizeRule),
     authentication: authentication ? sanitizeAuthentication(authentication) : null,
+    schemas: schemas.map(sanitizeSchema),
   };
 };
 

@@ -323,6 +323,9 @@ async function loadPipelineConfig(configPath: string | undefined): Promise<Pipel
     if (raw.max_concurrent_pipelines !== undefined) {
       result.max_concurrent_pipelines = Number(raw.max_concurrent_pipelines);
     }
+    if (raw.mode !== undefined) {
+      result.mode = raw.mode;
+    }
     return result;
   } catch {
     // Config errors surface later in preflight. Don't block workflow start.

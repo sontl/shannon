@@ -58,13 +58,25 @@ Durable workflow orchestration with crash recovery, queryable progress, intellig
 - `src/temporal/worker.ts` — Worker entry point
 - `src/temporal/client.ts` — CLI client for starting workflows
 - `src/temporal/shared.ts` — Types, interfaces, query definitions
-### Five-Phase Pipeline
+### Whitebox Pipeline (default)
 
 1. **Pre-Recon** (`pre-recon`) — External scans (nmap, subfinder, whatweb) + source code analysis
 2. **Recon** (`recon`) — Attack surface mapping from initial findings
 3. **Vulnerability Analysis** (5 parallel agents) — injection, xss, auth, authz, ssrf
 4. **Exploitation** (5 parallel agents, conditional) — Exploits confirmed vulnerabilities
 5. **Reporting** (`report`) — Executive-level security report
+
+### Graybox Pipeline (`pipeline.mode: graybox` in config)
+
+No source code access. Uses dynamic browser-based discovery and behavioral analysis (DAST). Mirrors the whitebox pipeline structure with parallel vuln/exploit pairs.
+
+1. **Discovery** (`discovery`) — Spiders the app, analyzes JS bundles, fuzzes common paths, ingests any provided API schemas (OpenAPI/GraphQL). Produces `graybox_discovery.md`
+2. **Auth Mapping** (`auth-mapper`) — Authenticates, builds unauthenticated vs. authenticated access matrix, probes for IDOR and vertical privilege escalation. Produces `graybox_auth_map.md`
+3. **Vulnerability Analysis** (5 parallel agents) — graybox-injection-vuln, graybox-xss-vuln, graybox-auth-vuln, graybox-ssrf-vuln, graybox-authz-vuln. DAST behavioral testing per vulnerability class. Each produces analysis deliverable MD + exploitation queue JSON
+4. **Exploitation** (5 parallel agents, conditional) — graybox-injection-exploit, graybox-xss-exploit, graybox-auth-exploit, graybox-ssrf-exploit, graybox-authz-exploit. Dynamic exploitation via Playwright + curl. Gated by `checkExploitationQueue` (same mechanism as whitebox)
+5. **Reporting** (`graybox-report`) — DAST-oriented executive report from exploitation evidence. Produces `comprehensive_security_assessment_report.md`
+
+Agent sets: `WHITEBOX_AGENTS` (13) and `GRAYBOX_AGENTS` (14) in `src/types/agents.ts` — used by the resume short-circuit to avoid comparing against `ALL_AGENTS.length` in the wrong mode. Both pipelines share the exploitation queue mechanism (`queue-validation.ts`, `exploitation-checker.ts`) — graybox agents write the same queue files as whitebox.
 
 ### Supporting Systems
 - **Configuration** — YAML configs in `configs/` with JSON Schema validation (`config-schema.json`). Supports auth settings, MFA/TOTP, and per-app testing parameters

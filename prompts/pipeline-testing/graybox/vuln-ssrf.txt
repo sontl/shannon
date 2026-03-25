@@ -1,0 +1,13 @@
+Please complete these tasks using your MCP tools:
+
+1. Navigate to https://example.com and take a screenshot:
+   - Use {{MCP_SERVER}}__browser_navigate to go to https://example.com
+   - Use {{MCP_SERVER}}__browser_take_screenshot
+
+2. Save an analysis deliverable:
+   - Use save_deliverable with deliverable_type "SSRF_ANALYSIS"
+   - Content: "# SSRF Analysis Report (Gray-Box DAST)\n\nAnalysis complete. No SSRF vulnerabilities identified."
+
+3. Save a queue deliverable:
+   - Use save_deliverable with deliverable_type "SSRF_QUEUE"
+   - Content: {"vulnerabilities": []}

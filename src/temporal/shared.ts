@@ -53,6 +53,8 @@ export interface PipelineProgress extends PipelineState {
 // Result from a single vuln→exploit pipeline
 export interface VulnExploitPipelineResult {
   vulnType: string;
+  vulnAgent: string;
+  exploitAgent: string;
   vulnMetrics: AgentMetrics | null;
   exploitMetrics: AgentMetrics | null;
   exploitDecision: {

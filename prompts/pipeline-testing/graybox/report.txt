@@ -1,0 +1,1 @@
+Use the save_deliverable MCP tool with `deliverable_type: "REPORT"` and `content: "Gray-box report complete"`. Then say "Done".

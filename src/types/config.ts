@@ -48,10 +48,22 @@ export interface Authentication {
   success_condition: SuccessCondition;
 }
 
+export type SchemaType = 'openapi' | 'swagger' | 'graphql';
+
+export interface SchemaHint {
+  url: string;
+  type: SchemaType;
+}
+
+export interface ContextConfig {
+  schemas?: SchemaHint[];
+}
+
 export interface Config {
   rules?: Rules;
   authentication?: Authentication;
   pipeline?: PipelineConfig;
+  context?: ContextConfig;
 }
 
 export type RetryPreset = 'default' | 'subscription';
@@ -59,10 +71,12 @@ export type RetryPreset = 'default' | 'subscription';
 export interface PipelineConfig {
   retry_preset?: RetryPreset;
   max_concurrent_pipelines?: number;
+  mode?: 'whitebox' | 'graybox';
 }
 
 export interface DistributedConfig {
   avoid: Rule[];
   focus: Rule[];
   authentication: Authentication | null;
+  schemas: SchemaHint[];
 }

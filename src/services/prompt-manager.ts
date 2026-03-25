@@ -178,6 +178,18 @@ async function interpolateVariables(
           .replace(/{{RULES_FOCUS}}/g, focusRules);
       }
 
+      // Inject schema hints for graybox discovery
+      if (config.schemas && config.schemas.length > 0) {
+        const schemaLines = config.schemas.map(s => `- ${s.type.toUpperCase()}: ${s.url}`).join('\n');
+        result = result.replace(/{{SCHEMAS_CONTEXT}}/g,
+          `The following API schemas have been provided — ingest these first before dynamic discovery:\n${schemaLines}`
+        );
+      } else {
+        result = result.replace(/{{SCHEMAS_CONTEXT}}/g,
+          'No schemas provided — discover endpoints dynamically.'
+        );
+      }
+
       // Extract and inject login instructions from config
       if (config.authentication?.login_flow) {
         const loginInstructions = await buildLoginInstructions(config.authentication, logger);
@@ -190,6 +202,7 @@ async function interpolateVariables(
       const cleanRulesSection = '<rules>\nNo specific rules or focus areas provided for this test.\n</rules>';
       result = result.replace(/<rules>[\s\S]*?<\/rules>/g, cleanRulesSection);
       result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, '');
+      result = result.replace(/{{SCHEMAS_CONTEXT}}/g, 'No schemas provided — discover endpoints dynamically.');
     }
 
     // Validate that all placeholders have been replaced (excluding instructional text)

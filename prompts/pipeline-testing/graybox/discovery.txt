@@ -1,0 +1,1 @@
+Use the save_deliverable MCP tool with `deliverable_type: "DISCOVERY"` and `content: "Gray-box discovery complete"`. Then say "Done".

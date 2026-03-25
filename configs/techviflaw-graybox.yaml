@@ -1,0 +1,52 @@
+# Shannon Gray-Box Penetration Test Configuration
+# Target: Vulnerability Simulation App (Techviflaw)
+
+pipeline:
+  mode: graybox
+  max_concurrent_pipelines: 5
+
+authentication:
+  login_type: form
+  login_url: http://localhost:5173/login
+  credentials:
+    username: test@example.com
+    password: "123456"
+  login_flow:
+    - Navigate to the /login page
+    - Fill in $username in the email field
+    - Fill in $password in the password field
+    - Click the Login button
+  success_condition:
+    type: cookie
+    value: token
+
+rules:
+  focus:
+    # High Priority Vulnerability Areas (Hints for Discovery & Fuzzer)
+    - description: "Test for SQL Injection in project search"
+      type: path
+      url_path: "/api/projects/search/name"
+    - description: "Verify Path Traversal in file downloads"
+      type: path
+      url_path: "/api/files/download"
+    - description: "Check for SSRF via URL fetching component"
+      type: path
+      url_path: "/api/fetch-url"
+    - description: "Test Command Injection in ping utility"
+      type: path
+      url_path: "/api/utils/ping"
+    - description: "Assess IDOR on private project access"
+      type: path
+      url_path: "/api/projects"
+    - description: "Map Broken Access Control on admin flags"
+      type: path
+      url_path: "/api/admin"
+    - description: "Verify Unrestricted File Upload in Multer component"
+      type: path
+      url_path: "/api/files/upload"
+
+  avoid:
+    # Safeguards
+    - description: "Do not attempt to reset secondary user accounts"
+      type: path
+      url_path: "/api/auth/reset-password"

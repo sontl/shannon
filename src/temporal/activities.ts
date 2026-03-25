@@ -57,6 +57,7 @@ export interface ActivityInput {
   configPath?: string;
   outputPath?: string;
   pipelineTestingMode?: boolean;
+  pipelineMode?: 'whitebox' | 'graybox';
   workflowId: string;
   sessionId: string;
 }
@@ -248,6 +249,61 @@ export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics
   return runAgentActivity('report', input);
 }
 
+// Gray-box activities
+export async function runDiscoveryAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('discovery', input);
+}
+
+export async function runAuthMapperAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('auth-mapper', input);
+}
+
+// Gray-box vulnerability analysis agents
+export async function runGrayboxInjectionVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('graybox-injection-vuln', input);
+}
+
+export async function runGrayboxXssVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('graybox-xss-vuln', input);
+}
+
+export async function runGrayboxAuthVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('graybox-auth-vuln', input);
+}
+
+export async function runGrayboxSsrfVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('graybox-ssrf-vuln', input);
+}
+
+export async function runGrayboxAuthzVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('graybox-authz-vuln', input);
+}
+
+// Gray-box exploitation agents
+export async function runGrayboxInjectionExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('graybox-injection-exploit', input);
+}
+
+export async function runGrayboxXssExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('graybox-xss-exploit', input);
+}
+
+export async function runGrayboxAuthExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('graybox-auth-exploit', input);
+}
+
+export async function runGrayboxSsrfExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('graybox-ssrf-exploit', input);
+}
+
+export async function runGrayboxAuthzExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('graybox-authz-exploit', input);
+}
+
+export async function runGrayboxReportAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('graybox-report', input);
+}
+
 /**
  * Preflight validation activity.
  *
@@ -318,11 +374,11 @@ export async function runPreflightValidation(input: ActivityInput): Promise<void
  * Assemble the final report by concatenating exploitation evidence files.
  */
 export async function assembleReportActivity(input: ActivityInput): Promise<void> {
-  const { repoPath } = input;
+  const { repoPath, pipelineMode = 'whitebox' } = input;
   const logger = createActivityLogger();
   logger.info('Assembling deliverables from specialist agents...');
   try {
-    await assembleFinalReport(repoPath, logger);
+    await assembleFinalReport(repoPath, logger, pipelineMode);
   } catch (error) {
     const err = error as Error;
     logger.warn(`Error assembling final report: ${err.message}`);

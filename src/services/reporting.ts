@@ -15,15 +15,31 @@ interface DeliverableFile {
   required: boolean;
 }
 
+const WHITEBOX_DELIVERABLES: DeliverableFile[] = [
+  { name: 'Injection', path: 'injection_exploitation_evidence.md', required: false },
+  { name: 'XSS', path: 'xss_exploitation_evidence.md', required: false },
+  { name: 'Authentication', path: 'auth_exploitation_evidence.md', required: false },
+  { name: 'SSRF', path: 'ssrf_exploitation_evidence.md', required: false },
+  { name: 'Authorization', path: 'authz_exploitation_evidence.md', required: false },
+];
+
+const GRAYBOX_DELIVERABLES: DeliverableFile[] = [
+  { name: 'Discovery', path: 'graybox_discovery.md', required: false },
+  { name: 'Auth Map', path: 'graybox_auth_map.md', required: false },
+  { name: 'Injection', path: 'injection_exploitation_evidence.md', required: false },
+  { name: 'XSS', path: 'xss_exploitation_evidence.md', required: false },
+  { name: 'Authentication', path: 'auth_exploitation_evidence.md', required: false },
+  { name: 'SSRF', path: 'ssrf_exploitation_evidence.md', required: false },
+  { name: 'Authorization', path: 'authz_exploitation_evidence.md', required: false },
+];
+
 // Pure function: Assemble final report from specialist deliverables
-export async function assembleFinalReport(sourceDir: string, logger: ActivityLogger): Promise<string> {
-  const deliverableFiles: DeliverableFile[] = [
-    { name: 'Injection', path: 'injection_exploitation_evidence.md', required: false },
-    { name: 'XSS', path: 'xss_exploitation_evidence.md', required: false },
-    { name: 'Authentication', path: 'auth_exploitation_evidence.md', required: false },
-    { name: 'SSRF', path: 'ssrf_exploitation_evidence.md', required: false },
-    { name: 'Authorization', path: 'authz_exploitation_evidence.md', required: false }
-  ];
+export async function assembleFinalReport(
+  sourceDir: string,
+  logger: ActivityLogger,
+  mode: 'whitebox' | 'graybox' = 'whitebox'
+): Promise<string> {
+  const deliverableFiles = mode === 'graybox' ? GRAYBOX_DELIVERABLES : WHITEBOX_DELIVERABLES;
 
   const sections: string[] = [];
 

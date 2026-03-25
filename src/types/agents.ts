@@ -12,7 +12,7 @@
  * List of all agents in execution order.
  * Used for iteration during resume state checking.
  */
-export const ALL_AGENTS = [
+export const WHITEBOX_AGENTS = [
   'pre-recon',
   'recon',
   'injection-vuln',
@@ -26,6 +26,27 @@ export const ALL_AGENTS = [
   'ssrf-exploit',
   'authz-exploit',
   'report',
+] as const;
+
+export const GRAYBOX_AGENTS = [
+  'discovery',
+  'auth-mapper',
+  'graybox-injection-vuln',
+  'graybox-xss-vuln',
+  'graybox-auth-vuln',
+  'graybox-ssrf-vuln',
+  'graybox-authz-vuln',
+  'graybox-injection-exploit',
+  'graybox-xss-exploit',
+  'graybox-auth-exploit',
+  'graybox-ssrf-exploit',
+  'graybox-authz-exploit',
+  'graybox-report',
+] as const;
+
+export const ALL_AGENTS = [
+  ...WHITEBOX_AGENTS,
+  ...GRAYBOX_AGENTS,
 ] as const;
 
 /**

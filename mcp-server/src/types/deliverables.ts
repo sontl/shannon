@@ -40,6 +40,11 @@ export enum DeliverableType {
   AUTH_EVIDENCE = 'AUTH_EVIDENCE',
   AUTHZ_EVIDENCE = 'AUTHZ_EVIDENCE',
   SSRF_EVIDENCE = 'SSRF_EVIDENCE',
+
+  // Gray-box pipeline agents
+  DISCOVERY = 'DISCOVERY',
+  AUTH_MAP = 'AUTH_MAP',
+  REPORT = 'REPORT',
 }
 
 /**
@@ -64,6 +69,9 @@ export const DELIVERABLE_FILENAMES: Record<DeliverableType, string> = {
   [DeliverableType.AUTH_EVIDENCE]: 'auth_exploitation_evidence.md',
   [DeliverableType.AUTHZ_EVIDENCE]: 'authz_exploitation_evidence.md',
   [DeliverableType.SSRF_EVIDENCE]: 'ssrf_exploitation_evidence.md',
+  [DeliverableType.DISCOVERY]: 'graybox_discovery.md',
+  [DeliverableType.AUTH_MAP]: 'graybox_auth_map.md',
+  [DeliverableType.REPORT]: 'comprehensive_security_assessment_report.md',
 };
 
 /**

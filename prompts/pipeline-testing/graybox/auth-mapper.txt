@@ -1,0 +1,1 @@
+Use the save_deliverable MCP tool with `deliverable_type: "AUTH_MAP"` and `content: "Auth mapping complete"`. Then say "Done".

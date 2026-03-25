@@ -1,0 +1,50 @@
+pipeline:
+  # Enable the gray-box dynamic testing flow
+  mode: graybox
+  # Limit concurrency to avoid rate limiting during fuzzing
+  max_concurrent_pipelines: 3
+
+# Optional: provide schema locations so the discovery agent has a head start.
+# Remove this section entirely if no schemas are available — the agent will
+# fall back to dynamic discovery.
+context:
+  schemas:
+    - url: /api-docs/swagger.json   # path relative to the target URL
+      type: openapi
+    # - url: /graphql               # uncomment for GraphQL targets
+    #   type: graphql
+
+authentication:
+  # Instruct the agent how to authenticate
+  login_type: form
+  login_url: /login
+  credentials:
+    username: testuser@example.com
+    password: Password123!
+  login_flow:
+    - Navigate to the /login page
+    - Fill in $username in the email field
+    - Fill in $password in the password field
+    - Click the sign in button
+  success_condition:
+    type: cookie
+    value: session_token
+
+rules:
+  focus:
+    # Use these as developer hints for the Gray-box Discovery
+    - description: "Focus heavily on the new beta reporting module"
+      type: path
+      url_path: /api/reports
+    - description: "Map the secondary dashboard functionality"
+      type: path
+      url_path: /dashboard/v2
+
+  avoid:
+    # Inform the agent of out-of-bounds endpoints
+    - description: "Do not trigger payment or billing webhooks during fuzzing"
+      type: path
+      url_path: /api/billing
+    - description: "Avoid the logout route so the session is not destroyed"
+      type: path
+      url_path: /api/auth/logout

@@ -105,6 +105,102 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     deliverableFilename: 'comprehensive_security_assessment_report.md',
     modelTier: 'small',
   },
+  'discovery': {
+    name: 'discovery',
+    displayName: 'Gray-box Discovery Agent',
+    prerequisites: [],
+    promptTemplate: 'graybox/discovery',
+    deliverableFilename: 'graybox_discovery.md',
+    modelTier: 'large',
+  },
+  'auth-mapper': {
+    name: 'auth-mapper',
+    displayName: 'Gray-box Auth Mapper Agent',
+    prerequisites: ['discovery'],
+    promptTemplate: 'graybox/auth-mapper',
+    deliverableFilename: 'graybox_auth_map.md',
+  },
+  'graybox-injection-vuln': {
+    name: 'graybox-injection-vuln',
+    displayName: 'Gray-box Injection Vuln Agent',
+    prerequisites: ['auth-mapper'],
+    promptTemplate: 'graybox/vuln-injection',
+    deliverableFilename: 'injection_analysis_deliverable.md',
+  },
+  'graybox-xss-vuln': {
+    name: 'graybox-xss-vuln',
+    displayName: 'Gray-box XSS Vuln Agent',
+    prerequisites: ['auth-mapper'],
+    promptTemplate: 'graybox/vuln-xss',
+    deliverableFilename: 'xss_analysis_deliverable.md',
+  },
+  'graybox-auth-vuln': {
+    name: 'graybox-auth-vuln',
+    displayName: 'Gray-box Auth Vuln Agent',
+    prerequisites: ['auth-mapper'],
+    promptTemplate: 'graybox/vuln-auth',
+    deliverableFilename: 'auth_analysis_deliverable.md',
+  },
+  'graybox-ssrf-vuln': {
+    name: 'graybox-ssrf-vuln',
+    displayName: 'Gray-box SSRF Vuln Agent',
+    prerequisites: ['auth-mapper'],
+    promptTemplate: 'graybox/vuln-ssrf',
+    deliverableFilename: 'ssrf_analysis_deliverable.md',
+  },
+  'graybox-authz-vuln': {
+    name: 'graybox-authz-vuln',
+    displayName: 'Gray-box Authz Vuln Agent',
+    prerequisites: ['auth-mapper'],
+    promptTemplate: 'graybox/vuln-authz',
+    deliverableFilename: 'authz_analysis_deliverable.md',
+  },
+  'graybox-injection-exploit': {
+    name: 'graybox-injection-exploit',
+    displayName: 'Gray-box Injection Exploit Agent',
+    prerequisites: ['graybox-injection-vuln'],
+    promptTemplate: 'graybox/exploit-injection',
+    deliverableFilename: 'injection_exploitation_evidence.md',
+  },
+  'graybox-xss-exploit': {
+    name: 'graybox-xss-exploit',
+    displayName: 'Gray-box XSS Exploit Agent',
+    prerequisites: ['graybox-xss-vuln'],
+    promptTemplate: 'graybox/exploit-xss',
+    deliverableFilename: 'xss_exploitation_evidence.md',
+  },
+  'graybox-auth-exploit': {
+    name: 'graybox-auth-exploit',
+    displayName: 'Gray-box Auth Exploit Agent',
+    prerequisites: ['graybox-auth-vuln'],
+    promptTemplate: 'graybox/exploit-auth',
+    deliverableFilename: 'auth_exploitation_evidence.md',
+  },
+  'graybox-ssrf-exploit': {
+    name: 'graybox-ssrf-exploit',
+    displayName: 'Gray-box SSRF Exploit Agent',
+    prerequisites: ['graybox-ssrf-vuln'],
+    promptTemplate: 'graybox/exploit-ssrf',
+    deliverableFilename: 'ssrf_exploitation_evidence.md',
+  },
+  'graybox-authz-exploit': {
+    name: 'graybox-authz-exploit',
+    displayName: 'Gray-box Authz Exploit Agent',
+    prerequisites: ['graybox-authz-vuln'],
+    promptTemplate: 'graybox/exploit-authz',
+    deliverableFilename: 'authz_exploitation_evidence.md',
+  },
+  'graybox-report': {
+    name: 'graybox-report',
+    displayName: 'Gray-box Report Agent',
+    prerequisites: [
+      'graybox-injection-exploit', 'graybox-xss-exploit', 'graybox-auth-exploit',
+      'graybox-ssrf-exploit', 'graybox-authz-exploit',
+    ],
+    promptTemplate: 'graybox/report',
+    deliverableFilename: 'comprehensive_security_assessment_report.md',
+    modelTier: 'small',
+  },
 });
 
 // Phase names for metrics aggregation
@@ -125,6 +221,19 @@ export const AGENT_PHASE_MAP: Readonly<Record<AgentName, PhaseName>> = Object.fr
   'authz-exploit': 'exploitation',
   'ssrf-exploit': 'exploitation',
   'report': 'reporting',
+  'discovery': 'pre-recon',
+  'auth-mapper': 'recon',
+  'graybox-injection-vuln': 'vulnerability-analysis',
+  'graybox-xss-vuln': 'vulnerability-analysis',
+  'graybox-auth-vuln': 'vulnerability-analysis',
+  'graybox-ssrf-vuln': 'vulnerability-analysis',
+  'graybox-authz-vuln': 'vulnerability-analysis',
+  'graybox-injection-exploit': 'exploitation',
+  'graybox-xss-exploit': 'exploitation',
+  'graybox-auth-exploit': 'exploitation',
+  'graybox-ssrf-exploit': 'exploitation',
+  'graybox-authz-exploit': 'exploitation',
+  'graybox-report': 'reporting',
 });
 
 // Factory function for vulnerability queue validators
@@ -178,6 +287,27 @@ export const MCP_AGENT_MAPPING: Record<string, PlaywrightAgent> = Object.freeze(
   // NOTE: Report generation is typically text-based and doesn't use browser automation,
   // but assigning MCP server anyway for potential screenshot inclusion or future needs
   'report-executive': 'playwright-agent3',
+
+  // Gray-box discovery and auth mapping
+  'graybox/discovery': 'playwright-agent1',
+  'graybox/auth-mapper': 'playwright-agent2',
+
+  // Gray-box vulnerability analysis (5 parallel agents)
+  'graybox/vuln-injection': 'playwright-agent1',
+  'graybox/vuln-xss': 'playwright-agent2',
+  'graybox/vuln-auth': 'playwright-agent3',
+  'graybox/vuln-ssrf': 'playwright-agent4',
+  'graybox/vuln-authz': 'playwright-agent5',
+
+  // Gray-box exploitation (5 parallel agents - same slots as vuln counterparts)
+  'graybox/exploit-injection': 'playwright-agent1',
+  'graybox/exploit-xss': 'playwright-agent2',
+  'graybox/exploit-auth': 'playwright-agent3',
+  'graybox/exploit-ssrf': 'playwright-agent4',
+  'graybox/exploit-authz': 'playwright-agent5',
+
+  // Gray-box reporting
+  'graybox/report': 'playwright-agent1',
 });
 
 // Direct agent-to-validator mapping - much simpler than pattern matching
@@ -222,6 +352,44 @@ export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze
       logger.error('Missing required deliverable: comprehensive_security_assessment_report.md');
     }
 
+    return reportExists;
+  },
+
+  // Gray-box discovery and auth mapping
+  'discovery': async (sourceDir: string): Promise<boolean> => {
+    const file = path.join(sourceDir, 'deliverables', 'graybox_discovery.md');
+    return await fs.pathExists(file);
+  },
+  'auth-mapper': async (sourceDir: string): Promise<boolean> => {
+    const file = path.join(sourceDir, 'deliverables', 'graybox_auth_map.md');
+    return await fs.pathExists(file);
+  },
+
+  // Gray-box vulnerability analysis agents
+  'graybox-injection-vuln': createVulnValidator('injection'),
+  'graybox-xss-vuln': createVulnValidator('xss'),
+  'graybox-auth-vuln': createVulnValidator('auth'),
+  'graybox-ssrf-vuln': createVulnValidator('ssrf'),
+  'graybox-authz-vuln': createVulnValidator('authz'),
+
+  // Gray-box exploitation agents
+  'graybox-injection-exploit': createExploitValidator('injection'),
+  'graybox-xss-exploit': createExploitValidator('xss'),
+  'graybox-auth-exploit': createExploitValidator('auth'),
+  'graybox-ssrf-exploit': createExploitValidator('ssrf'),
+  'graybox-authz-exploit': createExploitValidator('authz'),
+
+  // Gray-box report
+  'graybox-report': async (sourceDir: string, logger: ActivityLogger): Promise<boolean> => {
+    const reportFile = path.join(
+      sourceDir,
+      'deliverables',
+      'comprehensive_security_assessment_report.md'
+    );
+    const reportExists = await fs.pathExists(reportFile);
+    if (!reportExists) {
+      logger.error('Missing required deliverable: comprehensive_security_assessment_report.md');
+    }
     return reportExists;
   },
 });

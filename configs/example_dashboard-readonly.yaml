@@ -1,0 +1,63 @@
+pipeline:
+  mode: graybox
+  max_concurrent_pipelines: 5
+
+authentication:
+  login_type: form
+  login_url: /login
+  credentials:
+    username: readonly@company.com
+    password: ReadonlyPass123!
+  login_flow:
+    - Navigate to /login
+    - Fill in $username in the email field
+    - Fill in $password in the password field
+    - Click the Sign In button
+  success_condition:
+    type: url_contains
+    value: /dashboard
+
+# Goal: Privilege escalation and broken access control testing.
+# This account should only be able to read — it must NOT be able to reach any
+# write or management endpoints. The authz agent will aggressively probe whether
+# this role can call endpoints it has no business accessing.
+#
+# Key questions this run answers:
+#   - Can a read-only user create or edit companies, agencies, or accounts?
+#   - Can a read-only user access another user's application data (IDOR)?
+#   - Can a read-only user reach organization management features?
+#   - Are write endpoints protected by role checks, or only hidden in the UI?
+rules:
+  focus:
+    - description: "Can this role reach company creation? Should be blocked — test aggressively"
+      type: path
+      url_path: /api/companies
+    - description: "Can this role edit a company? Test PUT/PATCH/DELETE on known IDs"
+      type: path
+      url_path: /api/companies/:id
+    - description: "Agency creation should be blocked for read-only — confirm enforcement"
+      type: path
+      url_path: /api/agencies
+    - description: "Agency edit endpoints — should return 403, verify this is enforced server-side"
+      type: path
+      url_path: /api/agencies/:id
+    - description: "Account management — adding or editing accounts must require elevated role"
+      type: path
+      url_path: /api/accounts
+    - description: "Organization endpoints — read-only should not reach org mutation endpoints"
+      type: path
+      url_path: /api/organizations
+    - description: "Application detail — test IDOR: can this user read other users' applications?"
+      type: path
+      url_path: /api/applications/:id
+    - description: "Search org — check if search leaks cross-org data to unprivileged users"
+      type: path
+      url_path: /api/organizations/search
+
+  avoid:
+    - description: "Do not hit logout — session must stay alive for the full run"
+      type: path
+      url_path: /logout
+    - description: "Do not hit logout API variant"
+      type: path
+      url_path: /api/auth/logout

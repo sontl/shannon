@@ -335,6 +335,8 @@ export class MetricsTracker {
     const phases: Record<PhaseName, AgentAuditMetrics[]> = {
       'pre-recon': [],
       'recon': [],
+      'discovery': [],
+      'auth-mapping': [],
       'vulnerability-analysis': [],
       'exploitation': [],
       'reporting': [],

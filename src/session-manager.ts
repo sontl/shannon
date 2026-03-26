@@ -204,7 +204,7 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
 });
 
 // Phase names for metrics aggregation
-export type PhaseName = 'pre-recon' | 'recon' | 'vulnerability-analysis' | 'exploitation' | 'reporting';
+export type PhaseName = 'pre-recon' | 'recon' | 'discovery' | 'auth-mapping' | 'vulnerability-analysis' | 'exploitation' | 'reporting';
 
 // Map agents to their corresponding phases (single source of truth)
 export const AGENT_PHASE_MAP: Readonly<Record<AgentName, PhaseName>> = Object.freeze({
@@ -221,8 +221,8 @@ export const AGENT_PHASE_MAP: Readonly<Record<AgentName, PhaseName>> = Object.fr
   'authz-exploit': 'exploitation',
   'ssrf-exploit': 'exploitation',
   'report': 'reporting',
-  'discovery': 'pre-recon',
-  'auth-mapper': 'recon',
+  'discovery': 'discovery',
+  'auth-mapper': 'auth-mapping',
   'graybox-injection-vuln': 'vulnerability-analysis',
   'graybox-xss-vuln': 'vulnerability-analysis',
   'graybox-auth-vuln': 'vulnerability-analysis',

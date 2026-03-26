@@ -1,0 +1,152 @@
+pipeline:
+  mode: graybox
+  max_concurrent_pipelines: 5
+
+authentication:
+  login_type: form
+  login_url: /login
+  credentials:
+    username: orgmanager@company-a.com
+    password: OrgMgrPass123!
+  login_flow:
+    - Navigate to /login
+    - Fill in $username in the email field
+    - Fill in $password in the password field
+    - Click the Sign In button
+  success_condition:
+    type: url_contains
+    value: /dashboard
+
+# Goal: Cross-organization data isolation testing.
+#
+# This account is an org manager for "Company A". It has legitimate write access
+# within its own org — it can add companies, agencies, and accounts that belong
+# to Company A. The critical question is: does the server enforce org boundaries,
+# or does it only check that the user is authenticated?
+#
+# This is the most common real-world authz failure in multi-tenant SaaS apps:
+# role checks pass ("you are an org manager") but tenant isolation fails
+# ("...but we didn't check WHICH org").
+#
+# Known context to seed the agents:
+#   - This user's org ID: org_123  (Company A)
+#   - A different org ID: org_456  (Company B — another tenant)
+#   - A Company A company ID: company_111
+#   - A Company B company ID: company_999  ← this user must NOT be able to touch this
+#   - A Company A agency ID: agency_222
+#   - A Company B agency ID: agency_888  ← must be blocked
+#   - A Company A account ID: account_333
+#   - A Company B account ID: account_777  ← must be blocked
+rules:
+  focus:
+    # --- Cross-org READ access ---
+    - description: >
+        Can this org manager read Company B's org profile?
+        GET /api/organizations/org_456 should return 403, not the org data.
+      type: path
+      url_path: /api/organizations/org_456
+
+    - description: >
+        Can this org manager list Company B's companies?
+        GET /api/companies?org_id=org_456 or /api/organizations/org_456/companies
+        should return 403 or empty, not Company B's records.
+      type: path
+      url_path: /api/organizations/org_456/companies
+
+    - description: >
+        Can this org manager read a specific company that belongs to Company B?
+        GET /api/companies/company_999 should return 403, not the record.
+        Classic IDOR — the ID is valid but belongs to a different tenant.
+      type: path
+      url_path: /api/companies/company_999
+
+    - description: >
+        Can this org manager read Company B's agency?
+        GET /api/agencies/agency_888 should return 403.
+      type: path
+      url_path: /api/agencies/agency_888
+
+    - description: >
+        Can this org manager read Company B's account?
+        GET /api/accounts/account_777 should return 403.
+      type: path
+      url_path: /api/accounts/account_777
+
+    - description: >
+        Does search leak cross-org results?
+        Search endpoints that return results from all orgs instead of scoping to the
+        authenticated user's org are a common multi-tenant data leak.
+      type: path
+      url_path: /api/organizations/search
+
+    - description: >
+        Application list — does /api/applications return only this org's apps,
+        or does it leak applications belonging to other organizations?
+      type: path
+      url_path: /api/applications
+
+    # --- Cross-org WRITE access (higher severity) ---
+    - description: >
+        Can this org manager edit Company B's company record?
+        PUT /api/companies/company_999 should return 403.
+        If it succeeds, this is a critical cross-tenant write vulnerability.
+      type: path
+      url_path: /api/companies/company_999
+
+    - description: >
+        Can this org manager delete Company B's company?
+        DELETE /api/companies/company_999 should return 403.
+      type: path
+      url_path: /api/companies/company_999
+
+    - description: >
+        Can this org manager add a new company directly into Company B's org?
+        POST /api/companies with body { org_id: "org_456", ... } — if the server
+        trusts the client-supplied org_id instead of reading it from the JWT, this
+        allows cross-org object creation.
+      type: path
+      url_path: /api/companies
+
+    - description: >
+        Can this org manager edit Company B's agency?
+        PUT /api/agencies/agency_888 should return 403.
+      type: path
+      url_path: /api/agencies/agency_888
+
+    - description: >
+        Can this org manager edit Company B's account?
+        PUT /api/accounts/account_777 should return 403.
+      type: path
+      url_path: /api/accounts/account_777
+
+    # --- Vertical escalation (org manager → admin) ---
+    - description: >
+        Can an org manager reach system-wide admin endpoints?
+        These should be gated to the admin role, not just any authenticated user.
+      type: path
+      url_path: /api/admin
+
+    - description: >
+        Can an org manager list ALL organizations in the system?
+        GET /api/organizations should scope to the user's own org, not return every tenant.
+      type: path
+      url_path: /api/organizations
+
+  avoid:
+    - description: "Do not hit logout — session must stay alive for the full run"
+      type: path
+      url_path: /logout
+    - description: "Do not hit logout API variant"
+      type: path
+      url_path: /api/auth/logout
+    - description: >
+        Do not mutate Company A's own data — we are testing cross-org boundaries,
+        not the org manager's legitimate write access within their own org.
+      type: path
+      url_path: /api/companies/company_111
+    - description: "Do not mutate Company A's own agency"
+      type: path
+      url_path: /api/agencies/agency_222
+    - description: "Do not mutate Company A's own account"
+      type: path
+      url_path: /api/accounts/account_333

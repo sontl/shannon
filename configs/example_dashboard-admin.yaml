@@ -1,0 +1,57 @@
+pipeline:
+  mode: graybox
+  max_concurrent_pipelines: 5
+
+# Provide API schema if available — removes need for full discovery inference.
+# Remove this section if the app doesn't expose one.
+context:
+  schemas:
+    - url: /api-docs/swagger.json
+      type: openapi
+
+authentication:
+  login_type: form
+  login_url: /login
+  credentials:
+    username: admin@company.com
+    password: AdminPass123!
+  login_flow:
+    - Navigate to /login
+    - Fill in $username in the email field
+    - Fill in $password in the password field
+    - Click the Sign In button
+  success_condition:
+    type: url_contains
+    value: /dashboard
+
+# Goal: Map the full attack surface with the highest-privilege account.
+# This run discovers all endpoints and tests all injection / auth / authz vectors
+# across every feature the admin role can access.
+rules:
+  focus:
+    - description: "Map all write endpoints — company, agency, and account creation"
+      type: path
+      url_path: /api/companies
+    - description: "Map all edit endpoints — these carry highest privilege and business risk"
+      type: path
+      url_path: /api/companies/:id
+    - description: "Agency management endpoints — creation and mutation"
+      type: path
+      url_path: /api/agencies
+    - description: "Account management — creation, editing, role assignment"
+      type: path
+      url_path: /api/accounts
+    - description: "Organization endpoints — cross-org data may be accessible to admin"
+      type: path
+      url_path: /api/organizations
+    - description: "Application list and detail — check for IDOR on :id parameters"
+      type: path
+      url_path: /api/applications
+
+  avoid:
+    - description: "Do not hit logout — session must stay alive for the full run"
+      type: path
+      url_path: /logout
+    - description: "Do not hit logout API variant"
+      type: path
+      url_path: /api/auth/logout

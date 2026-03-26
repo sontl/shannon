@@ -115,7 +115,7 @@ export default function UploadScreen() {
           <label 
             htmlFor="directory-upload" 
             style={{
-              background: 'var(--color-accent)', color: '#0f172a',
+              background: 'var(--color-accent)', color: '#ffffff',
               padding: '12px 24px', borderRadius: '8px', cursor: 'pointer',
               fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '8px',
               transition: 'all 0.2s', opacity: isLoading ? 0.7 : 1,

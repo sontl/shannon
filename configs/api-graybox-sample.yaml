@@ -1,0 +1,47 @@
+pipeline:
+  # API-only security testing mode (no browser, no mobile app)
+  target: api
+  mode: graybox
+  # Limit concurrency to avoid rate limiting during fuzzing
+  max_concurrent_pipelines: 3
+
+# Optional: API schema hints. The discovery agent will ingest these first.
+# Remove this section if no schema is available — agent will discover dynamically.
+context:
+  schemas:
+    - url: /api-docs/swagger.json   # path relative to the target URL
+      type: openapi
+    # - url: /graphql               # uncomment for GraphQL targets
+    #   type: graphql
+
+# Authentication — describe how the agent should authenticate against the API.
+# For API mode, use login_type: api to skip browser-based login.
+authentication:
+  login_type: api
+  credentials:
+    username: api-user@example.com
+    password: api-secret-key
+  login_flow:
+    - 'Send POST to /api/auth/login with JSON body {"email":"$username","password":"$password"}'
+    - 'Extract the Bearer token from the response JSON field "token"'
+    - 'Use header "Authorization: Bearer [token]" for all subsequent requests'
+  success_condition:
+    type: element_present
+    value: token
+
+rules:
+  focus:
+    - description: "Focus on the user management API"
+      type: path
+      url_path: /api/v1/users
+    - description: "Test the payments API"
+      type: path
+      url_path: /api/v1/payments
+
+  avoid:
+    - description: "Do not trigger account deletion"
+      type: path
+      url_path: /api/v1/users/delete
+    - description: "Avoid the logout endpoint to preserve session"
+      type: path
+      url_path: /api/auth/logout

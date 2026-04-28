@@ -40,14 +40,31 @@ show_help() {
            AI Penetration Testing Framework
 
 Usage:
-  ./shannon start URL=<url> REPO=<name>   Start a pentest workflow
-  ./shannon workspaces                    List all workspaces
-  ./shannon logs ID=<workflow-id>         Tail logs for a specific workflow
-  ./shannon stop                          Stop all containers
-  ./shannon help                          Show this help message
+  ./shannon start URL=<url> REPO=<name>             Start a web pentest workflow
+  ./shannon start APP=<id> DEVICE=<id> REPO=<name>  Start a mobile pentest workflow
+  ./shannon start URL=<url> REPO=<name> CONFIG=<api>  Start an API-only pentest workflow
+  ./shannon workspaces                              List all workspaces
+  ./shannon logs ID=<workflow-id>                   Tail logs for a specific workflow
+  ./shannon stop                                    Stop all containers
+  ./shannon help                                    Show this help message
 
-Options for 'start':
-  REPO=<name>            Folder name under ./repos/ (e.g. REPO=repo-name)
+Required for every 'start':
+  REPO=<name>            Folder under ./repos/ holding target documentation
+                         (specs, schemas, API docs — surfaced to every agent)
+
+Options for 'start' (web):
+  URL=<url>              Target website URL
+
+Options for 'start' (mobile):
+  APP=<bundle-id>        Android package name or iOS bundle ID
+  DEVICE=<device-id>     Device or emulator ID (run 'adb devices')
+  APK=<path>             (optional) Path to APK/IPA file to install
+
+Options for 'start' (api):
+  URL=<api-url>          Target API base URL
+  CONFIG=<path>          Config file with pipeline.target: api
+
+Options for 'start' (shared):
   CONFIG=<path>          Configuration file (YAML)
   OUTPUT=<path>          Output directory for reports (default: ./audit-logs/)
   WORKSPACE=<name>       Named workspace (auto-resumes if exists, creates if new)
@@ -62,6 +79,9 @@ Examples:
   ./shannon start URL=https://example.com REPO=repo-name WORKSPACE=q1-audit
   ./shannon start URL=https://example.com REPO=repo-name CONFIG=./config.yaml
   ./shannon start URL=https://example.com REPO=repo-name OUTPUT=./my-reports
+  ./shannon start APP=com.example.app DEVICE=emulator-5554 REPO=repo-name CONFIG=./configs/mobile.yaml
+  ./shannon start APP=com.example.app DEVICE=emulator-5554 REPO=repo-name APK=/path/to/app.apk CONFIG=./configs/mobile.yaml
+  ./shannon start URL=https://api.example.com REPO=repo-name CONFIG=./configs/api-graybox-sample.yaml
   ./shannon workspaces
   ./shannon logs ID=example.com_shannon-1234567890
   ./shannon stop CLEAN=true
@@ -76,6 +96,9 @@ parse_args() {
     case "$arg" in
       URL=*) URL="${arg#URL=}" ;;
       REPO=*) REPO="${arg#REPO=}" ;;
+      APP=*) APP="${arg#APP=}" ;;
+      DEVICE=*) DEVICE="${arg#DEVICE=}" ;;
+      APK=*) APK="${arg#APK=}" ;;
       CONFIG=*) CONFIG="${arg#CONFIG=}" ;;
       OUTPUT=*) OUTPUT="${arg#OUTPUT=}" ;;
       ID=*) ID="${arg#ID=}" ;;
@@ -135,11 +158,47 @@ ensure_containers() {
 cmd_start() {
   parse_args "$@"
 
-  # Validate required vars
-  if [ -z "$URL" ] || [ -z "$REPO" ]; then
-    echo "ERROR: URL and REPO are required"
+  # Detect mobile mode: APP= present means mobile target
+  IS_MOBILE=""
+  if [ -n "$APP" ]; then
+    IS_MOBILE="true"
+  fi
+
+  # Detect API mode: config has pipeline.target: api and no APP/REPO
+  IS_API=""
+  if [ -z "$IS_MOBILE" ] && [ -n "$CONFIG" ] && [ -f "$CONFIG" ]; then
+    if grep -qE '^[[:space:]]*target:[[:space:]]*api[[:space:]]*$' "$CONFIG" 2>/dev/null; then
+      IS_API="true"
+    fi
+  fi
+
+  # REPO is required for every target (provides documentation as input).
+  if [ -z "$REPO" ]; then
+    echo "ERROR: REPO is required (folder under ./repos/ with target documentation)"
     echo "Usage: ./shannon start URL=<url> REPO=<name>"
+    echo "       ./shannon start APP=<bundle-id> DEVICE=<device-id> REPO=<name> CONFIG=<path>"
+    echo "       ./shannon start URL=<api-url> REPO=<name> CONFIG=<api-config>"
     exit 1
+  fi
+
+  if [ -n "$IS_MOBILE" ]; then
+    if [ -z "$DEVICE" ]; then
+      echo "ERROR: DEVICE is required for mobile targets"
+      echo "Usage: ./shannon start APP=<bundle-id> DEVICE=<device-id> REPO=<name> CONFIG=<path>"
+      exit 1
+    fi
+  elif [ -n "$IS_API" ]; then
+    if [ -z "$URL" ]; then
+      echo "ERROR: URL is required for API targets"
+      echo "Usage: ./shannon start URL=<api-url> REPO=<name> CONFIG=<path>"
+      exit 1
+    fi
+  else
+    if [ -z "$URL" ]; then
+      echo "ERROR: URL is required for web targets (or use APP= for mobile, or CONFIG with pipeline.target=api)"
+      echo "Usage: ./shannon start URL=<url> REPO=<name>"
+      exit 1
+    fi
   fi
 
   # Check for API key (Bedrock, Vertex, router, and custom base URL modes can bypass this)
@@ -195,7 +254,7 @@ cmd_start() {
     fi
   fi
 
-  # Determine container path for REPO
+  # Determine container path for REPO (all targets — REPO holds documentation).
   # - If REPO is already a container path (/benchmarks/*, /repos/*), use as-is
   # - Otherwise, treat as a folder name under ./repos/ (mounted at /repos in container)
   case "$REPO" in
@@ -204,9 +263,9 @@ cmd_start() {
       ;;
     *)
       if [ ! -d "./repos/$REPO" ]; then
-        echo "ERROR: Repository not found at ./repos/$REPO"
+        echo "ERROR: Documentation folder not found at ./repos/$REPO"
         echo ""
-        echo "Place your target repository under the ./repos/ directory"
+        echo "Place your target documentation under the ./repos/ directory"
         exit 1
       fi
       CONTAINER_REPO="/repos/$REPO"
@@ -249,21 +308,24 @@ cmd_start() {
     export ANTHROPIC_AUTH_TOKEN="shannon-router-key"
   fi
 
-  # Ensure audit-logs directory exists with write permissions for container user (UID 1001)
+  # Export mobile env vars for Docker container
+  if [ -n "$IS_MOBILE" ]; then
+    export APPIUM_URL="http://host.docker.internal:4723"
+    [ -n "$DEVICE" ] && export APPIUM_DEVICE_ID="$DEVICE"
+    [ -n "$APK" ] && export APPIUM_APP_PATH="$APK"
+  fi
+
+  # Ensure audit-logs directory exists with write permissions for container user (UID 1001).
+  # Deliverables are now written under ./audit-logs/<sessionId>/deliverables/, never
+  # inside ./repos/<name>/ which is treated as read-only project documentation.
   mkdir -p ./audit-logs ./credentials
   chmod 777 ./audit-logs
-
-  # Ensure repo deliverables directory is writable by container user (UID 1001)
-  if [ -d "./repos/$REPO" ]; then
-    mkdir -p "./repos/$REPO/deliverables"
-    chmod 777 "./repos/$REPO/deliverables"
-  fi
 
   # Ensure containers are running (starts them if needed)
   ensure_containers
 
   # Build optional args
-  ARGS=""
+  ARGS="--repo $CONTAINER_REPO"
   [ -n "$CONFIG" ] && ARGS="$ARGS --config $CONFIG"
 
   # Pass container path for output (where OUTPUT_DIR is mounted)
@@ -275,9 +337,21 @@ cmd_start() {
   [ "$PIPELINE_TESTING" = "true" ] && ARGS="$ARGS --pipeline-testing"
   [ -n "$WORKSPACE" ] && ARGS="$ARGS --workspace $WORKSPACE"
 
-  # Run the client to submit workflow
-  docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE exec -T worker \
-    node dist/temporal/client.js "$URL" "$CONTAINER_REPO" $ARGS
+  # Mobile-specific args
+  [ -n "$APP" ] && ARGS="$ARGS --app $APP"
+  [ -n "$DEVICE" ] && ARGS="$ARGS --device $DEVICE"
+  [ -n "$APK" ] && ARGS="$ARGS --apk $APK"
+
+  # Run the client to submit workflow.
+  # Mobile mode passes no positional URL (target identified via APP=).
+  # Web/API both pass URL as the first positional.
+  if [ -n "$IS_MOBILE" ]; then
+    docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE exec -T worker \
+      node dist/temporal/client.js $ARGS
+  else
+    docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE exec -T worker \
+      node dist/temporal/client.js "$URL" $ARGS
+  fi
 }
 
 cmd_logs() {

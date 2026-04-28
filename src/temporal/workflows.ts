@@ -42,7 +42,7 @@ import {
   type ResumeState,
 } from './shared.js';
 import type { AgentName, VulnType } from '../types/agents.js';
-import { ALL_AGENTS, GRAYBOX_AGENTS, WHITEBOX_AGENTS } from '../types/agents.js';
+import { ALL_AGENTS, GRAYBOX_AGENTS, WHITEBOX_AGENTS, MOBILE_GRAYBOX_AGENTS, API_GRAYBOX_AGENTS } from '../types/agents.js';
 import { toWorkflowSummary } from './summary-mapper.js';
 import { formatWorkflowError } from './workflow-errors.js';
 
@@ -173,6 +173,7 @@ export async function pentestPipelineWorkflow(
   const activityInput: ActivityInput = {
     webUrl: input.webUrl,
     repoPath: input.repoPath,
+    workspacePath: input.workspacePath,
     workflowId,
     sessionId,
     ...(input.configPath !== undefined && { configPath: input.configPath }),
@@ -183,6 +184,16 @@ export async function pentestPipelineWorkflow(
     ...(input.pipelineConfig?.mode !== undefined && {
       pipelineMode: input.pipelineConfig.mode,
     }),
+    ...(input.pipelineConfig?.target !== undefined && {
+      pipelineTarget: input.pipelineConfig.target,
+    }),
+    // Mobile-specific fields
+    ...(input.appPath !== undefined && { appPath: input.appPath }),
+    ...(input.platform !== undefined && { platform: input.platform }),
+    ...(input.deviceId !== undefined && { deviceId: input.deviceId }),
+    ...(input.appiumUrl !== undefined && { appiumUrl: input.appiumUrl }),
+    ...(input.backendApiUrl !== undefined && { backendApiUrl: input.backendApiUrl }),
+    ...(input.bundleId !== undefined && { bundleId: input.bundleId }),
   };
 
   let resumeState: ResumeState | null = null;
@@ -192,7 +203,7 @@ export async function pentestPipelineWorkflow(
     resumeState = await a.loadResumeState(
       input.resumeFromWorkspace,
       input.webUrl,
-      input.repoPath
+      input.workspacePath
     );
 
     // 2. Restore git workspace and clean up incomplete deliverables
@@ -201,13 +212,20 @@ export async function pentestPipelineWorkflow(
     ) as AgentName[];
 
     await a.restoreGitCheckpoint(
-      input.repoPath,
+      input.workspacePath,
       resumeState.checkpointHash,
       incompleteAgents
     );
 
     // 3. Short-circuit if all agents for this mode already completed
-    const agentsForMode = input.pipelineConfig?.mode === 'graybox' ? GRAYBOX_AGENTS : WHITEBOX_AGENTS;
+    const target = input.pipelineConfig?.target || 'web';
+    // DISABLED: whitebox runtime deprecated — default mode is now 'graybox'.
+    const mode = input.pipelineConfig?.mode || 'graybox';
+    const agentsForMode = target === 'api'
+      ? API_GRAYBOX_AGENTS
+      : target === 'mobile'
+        ? MOBILE_GRAYBOX_AGENTS
+        : (mode === 'graybox' ? GRAYBOX_AGENTS : WHITEBOX_AGENTS);
     if (resumeState.completedAgents.length === agentsForMode.length) {
       log.info(`All ${agentsForMode.length} agents already completed. Nothing to resume.`);
       state.status = 'completed';
@@ -232,7 +250,21 @@ export async function pentestPipelineWorkflow(
     return resumeState?.completedAgents.includes(agentName) ?? false;
   };
 
-  // Run a sequential agent phase (pre-recon, recon)
+  // Persona phases are tracked in completedAgents under a qualified name so a
+  // single workflow can resume the right slot per persona.
+  const qualifiedAgent = (personaName: string, agentName: string): string =>
+    `${personaName}/${agentName}`;
+
+  // Per-persona activity input — tags downstream activities/prompts so the
+  // agent loads the right credentials and writes persona-suffixed deliverables.
+  const withPersona = (personaName: string): ActivityInput => ({
+    ...activityInput,
+    personaName,
+  });
+
+  const personas = input.personas.length > 0 ? input.personas : [{ name: 'default' }];
+
+  // Run a sequential agent phase (shared across personas — discovery, report).
   async function runSequentialPhase(
     phaseName: string,
     agentName: AgentName,
@@ -251,52 +283,119 @@ export async function pentestPipelineWorkflow(
     }
   }
 
-  // Build pipeline configs for the 5 vuln→exploit pairs
-  function buildPipelineConfigs(): Array<{
-    vulnType: VulnType;
-    vulnAgent: string;
-    exploitAgent: string;
-    runVuln: () => Promise<AgentMetrics>;
-    runExploit: () => Promise<AgentMetrics>;
-  }> {
-    return [
-      {
-        vulnType: 'injection',
-        vulnAgent: 'injection-vuln',
-        exploitAgent: 'injection-exploit',
-        runVuln: () => a.runInjectionVulnAgent(activityInput),
-        runExploit: () => a.runInjectionExploitAgent(activityInput),
-      },
-      {
-        vulnType: 'xss',
-        vulnAgent: 'xss-vuln',
-        exploitAgent: 'xss-exploit',
-        runVuln: () => a.runXssVulnAgent(activityInput),
-        runExploit: () => a.runXssExploitAgent(activityInput),
-      },
-      {
-        vulnType: 'auth',
-        vulnAgent: 'auth-vuln',
-        exploitAgent: 'auth-exploit',
-        runVuln: () => a.runAuthVulnAgent(activityInput),
-        runExploit: () => a.runAuthExploitAgent(activityInput),
-      },
-      {
-        vulnType: 'ssrf',
-        vulnAgent: 'ssrf-vuln',
-        exploitAgent: 'ssrf-exploit',
-        runVuln: () => a.runSsrfVulnAgent(activityInput),
-        runExploit: () => a.runSsrfExploitAgent(activityInput),
-      },
-      {
-        vulnType: 'authz',
-        vulnAgent: 'authz-vuln',
-        exploitAgent: 'authz-exploit',
-        runVuln: () => a.runAuthzVulnAgent(activityInput),
-        runExploit: () => a.runAuthzExploitAgent(activityInput),
-      },
-    ];
+  // Run an auth-mapper agent in parallel across all personas.
+  async function runAuthMapperPhase(
+    agentName: AgentName,
+    runAgent: (input: ActivityInput) => Promise<AgentMetrics>
+  ): Promise<void> {
+    state.currentPhase = 'auth-mapper';
+    state.currentAgent = agentName;
+    await a.logPhaseTransition(activityInput, 'auth-mapper', 'start');
+
+    const maxConcurrent = input.pipelineConfig?.max_concurrent_pipelines ?? 5;
+    const thunks: Array<() => Promise<{ persona: string; metrics: AgentMetrics | null }>> = [];
+
+    for (const persona of personas) {
+      const qualified = qualifiedAgent(persona.name, agentName);
+      if (shouldSkip(qualified)) {
+        log.info(`Skipping ${qualified} (already complete)`);
+        state.completedAgents.push(qualified);
+        continue;
+      }
+      thunks.push(async () => {
+        const metrics = await runAgent(withPersona(persona.name));
+        return { persona: persona.name, metrics };
+      });
+    }
+
+    if (thunks.length > 0) {
+      const results = await runAuthMapperWithLimit(thunks, maxConcurrent);
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          const { persona, metrics } = result.value;
+          const qualified = qualifiedAgent(persona, agentName);
+          if (metrics) {
+            state.agentMetrics[qualified] = metrics;
+            state.completedAgents.push(qualified);
+          }
+        } else {
+          log.warn(`auth-mapper persona run failed: ${String(result.reason)}`);
+        }
+      }
+    }
+
+    await a.logPhaseTransition(activityInput, 'auth-mapper', 'complete');
   }
+
+  // Concurrency-bounded runner for auth-mapper persona thunks.
+  async function runAuthMapperWithLimit(
+    thunks: Array<() => Promise<{ persona: string; metrics: AgentMetrics | null }>>,
+    limit: number
+  ): Promise<PromiseSettledResult<{ persona: string; metrics: AgentMetrics | null }>[]> {
+    const results: PromiseSettledResult<{ persona: string; metrics: AgentMetrics | null }>[] = [];
+    const inFlight = new Set<Promise<void>>();
+    for (const thunk of thunks) {
+      const slot = thunk().then(
+        (value) => { results.push({ status: 'fulfilled', value }); },
+        (reason: unknown) => { results.push({ status: 'rejected', reason }); }
+      ).finally(() => { inFlight.delete(slot); });
+      inFlight.add(slot);
+      if (inFlight.size >= limit) {
+        await Promise.race(inFlight);
+      }
+    }
+    await Promise.allSettled(inFlight);
+    return results;
+  }
+
+  // DISABLED: whitebox pipeline configs — runtime deprecated. Kept as reference.
+  // Uncomment (along with whitebox activity exports in activities.ts and the
+  // AGENTS entries in session-manager.ts) to restore.
+  // function buildPipelineConfigs(): Array<{
+  //   vulnType: VulnType;
+  //   vulnAgent: string;
+  //   exploitAgent: string;
+  //   runVuln: () => Promise<AgentMetrics>;
+  //   runExploit: () => Promise<AgentMetrics>;
+  // }> {
+  //   return [
+  //     {
+  //       vulnType: 'injection',
+  //       vulnAgent: 'injection-vuln',
+  //       exploitAgent: 'injection-exploit',
+  //       runVuln: () => a.runInjectionVulnAgent(activityInput),
+  //       runExploit: () => a.runInjectionExploitAgent(activityInput),
+  //     },
+  //     {
+  //       vulnType: 'xss',
+  //       vulnAgent: 'xss-vuln',
+  //       exploitAgent: 'xss-exploit',
+  //       runVuln: () => a.runXssVulnAgent(activityInput),
+  //       runExploit: () => a.runXssExploitAgent(activityInput),
+  //     },
+  //     {
+  //       vulnType: 'auth',
+  //       vulnAgent: 'auth-vuln',
+  //       exploitAgent: 'auth-exploit',
+  //       runVuln: () => a.runAuthVulnAgent(activityInput),
+  //       runExploit: () => a.runAuthExploitAgent(activityInput),
+  //     },
+  //     {
+  //       vulnType: 'ssrf',
+  //       vulnAgent: 'ssrf-vuln',
+  //       exploitAgent: 'ssrf-exploit',
+  //       runVuln: () => a.runSsrfVulnAgent(activityInput),
+  //       runExploit: () => a.runSsrfExploitAgent(activityInput),
+  //     },
+  //     {
+  //       vulnType: 'authz',
+  //       vulnAgent: 'authz-vuln',
+  //       exploitAgent: 'authz-exploit',
+  //       runVuln: () => a.runAuthzVulnAgent(activityInput),
+  //       runExploit: () => a.runAuthzExploitAgent(activityInput),
+  //     },
+  //   ];
+  // }
 
   // Aggregate results from settled pipeline promises into workflow state
   function aggregatePipelineResults(
@@ -374,41 +473,47 @@ export async function pentestPipelineWorkflow(
     log.info('Preflight validation passed');
 
     const isGraybox = input.pipelineConfig?.mode === 'graybox';
+    const isMobile = input.pipelineConfig?.target === 'mobile';
+    const isApi = input.pipelineConfig?.target === 'api';
+    log.info(`Pipeline routing: isGraybox=${isGraybox}, isMobile=${isMobile}, isApi=${isApi}, target=${input.pipelineConfig?.target}, mode=${input.pipelineConfig?.mode}`);
 
-    // Run a single vuln→exploit pipeline: vuln agent → queue check → conditional exploit
-    // Closure over shouldSkip and activityInput by design (Temporal replay safety)
+    // Run a single vuln→exploit pipeline for a specific persona.
+    // vulnAgent/exploitAgent fields in the result are qualified ("<persona>/<agent>")
+    // so aggregation can record per-persona completion in resume state.
     async function runVulnExploitPipeline(
+      personaName: string,
       vulnType: VulnType,
       vulnAgentName: string,
       exploitAgentName: string,
-      runVulnAgent: () => Promise<AgentMetrics>,
-      runExploitAgent: () => Promise<AgentMetrics>
+      runVulnAgent: (input: ActivityInput) => Promise<AgentMetrics>,
+      runExploitAgent: (input: ActivityInput) => Promise<AgentMetrics>
     ): Promise<VulnExploitPipelineResult> {
-      // 1. Run vulnerability analysis (or skip if resumed)
+      const qualifiedVuln = qualifiedAgent(personaName, vulnAgentName);
+      const qualifiedExploit = qualifiedAgent(personaName, exploitAgentName);
+      const personaInput = withPersona(personaName);
+
       let vulnMetrics: AgentMetrics | null = null;
-      if (!shouldSkip(vulnAgentName)) {
-        vulnMetrics = await runVulnAgent();
+      if (!shouldSkip(qualifiedVuln)) {
+        vulnMetrics = await runVulnAgent(personaInput);
       } else {
-        log.info(`Skipping ${vulnAgentName} (already complete)`);
+        log.info(`Skipping ${qualifiedVuln} (already complete)`);
       }
 
-      // 2. Check exploitation queue for actionable findings
-      const decision = await a.checkExploitationQueue(activityInput, vulnType);
+      const decision = await a.checkExploitationQueue(personaInput, vulnType);
 
-      // 3. Conditionally run exploitation agent
       let exploitMetrics: AgentMetrics | null = null;
       if (decision.shouldExploit) {
-        if (!shouldSkip(exploitAgentName)) {
-          exploitMetrics = await runExploitAgent();
+        if (!shouldSkip(qualifiedExploit)) {
+          exploitMetrics = await runExploitAgent(personaInput);
         } else {
-          log.info(`Skipping ${exploitAgentName} (already complete)`);
+          log.info(`Skipping ${qualifiedExploit} (already complete)`);
         }
       }
 
       return {
         vulnType,
-        vulnAgent: vulnAgentName,
-        exploitAgent: exploitAgentName,
+        vulnAgent: qualifiedVuln,
+        exploitAgent: qualifiedExploit,
         vulnMetrics,
         exploitMetrics,
         exploitDecision: {
@@ -419,57 +524,65 @@ export async function pentestPipelineWorkflow(
       };
     }
 
-    // Build graybox pipeline configs for the 5 DAST vuln→exploit pairs
-    function buildGrayboxPipelineConfigs(): Array<{
+    // Pipeline configs now return run* as activity invokers — input is supplied
+    // per persona at scheduling time so the same config runs N times across
+    // personas without rebuilding.
+    interface PipelineConfigEntry {
       vulnType: VulnType;
       vulnAgent: string;
       exploitAgent: string;
-      runVuln: () => Promise<AgentMetrics>;
-      runExploit: () => Promise<AgentMetrics>;
-    }> {
+      runVuln: (input: ActivityInput) => Promise<AgentMetrics>;
+      runExploit: (input: ActivityInput) => Promise<AgentMetrics>;
+    }
+
+    function buildGrayboxPipelineConfigs(): PipelineConfigEntry[] {
       return [
-        {
-          vulnType: 'injection',
-          vulnAgent: 'graybox-injection-vuln',
-          exploitAgent: 'graybox-injection-exploit',
-          runVuln: () => a.runGrayboxInjectionVulnAgent(activityInput),
-          runExploit: () => a.runGrayboxInjectionExploitAgent(activityInput),
-        },
-        {
-          vulnType: 'xss',
-          vulnAgent: 'graybox-xss-vuln',
-          exploitAgent: 'graybox-xss-exploit',
-          runVuln: () => a.runGrayboxXssVulnAgent(activityInput),
-          runExploit: () => a.runGrayboxXssExploitAgent(activityInput),
-        },
-        {
-          vulnType: 'auth',
-          vulnAgent: 'graybox-auth-vuln',
-          exploitAgent: 'graybox-auth-exploit',
-          runVuln: () => a.runGrayboxAuthVulnAgent(activityInput),
-          runExploit: () => a.runGrayboxAuthExploitAgent(activityInput),
-        },
-        {
-          vulnType: 'ssrf',
-          vulnAgent: 'graybox-ssrf-vuln',
-          exploitAgent: 'graybox-ssrf-exploit',
-          runVuln: () => a.runGrayboxSsrfVulnAgent(activityInput),
-          runExploit: () => a.runGrayboxSsrfExploitAgent(activityInput),
-        },
-        {
-          vulnType: 'authz',
-          vulnAgent: 'graybox-authz-vuln',
-          exploitAgent: 'graybox-authz-exploit',
-          runVuln: () => a.runGrayboxAuthzVulnAgent(activityInput),
-          runExploit: () => a.runGrayboxAuthzExploitAgent(activityInput),
-        },
+        { vulnType: 'injection', vulnAgent: 'graybox-injection-vuln', exploitAgent: 'graybox-injection-exploit',
+          runVuln: a.runGrayboxInjectionVulnAgent, runExploit: a.runGrayboxInjectionExploitAgent },
+        { vulnType: 'xss', vulnAgent: 'graybox-xss-vuln', exploitAgent: 'graybox-xss-exploit',
+          runVuln: a.runGrayboxXssVulnAgent, runExploit: a.runGrayboxXssExploitAgent },
+        { vulnType: 'auth', vulnAgent: 'graybox-auth-vuln', exploitAgent: 'graybox-auth-exploit',
+          runVuln: a.runGrayboxAuthVulnAgent, runExploit: a.runGrayboxAuthExploitAgent },
+        { vulnType: 'ssrf', vulnAgent: 'graybox-ssrf-vuln', exploitAgent: 'graybox-ssrf-exploit',
+          runVuln: a.runGrayboxSsrfVulnAgent, runExploit: a.runGrayboxSsrfExploitAgent },
+        { vulnType: 'authz', vulnAgent: 'graybox-authz-vuln', exploitAgent: 'graybox-authz-exploit',
+          runVuln: a.runGrayboxAuthzVulnAgent, runExploit: a.runGrayboxAuthzExploitAgent },
       ];
     }
 
-    // Run parallel vuln→exploit pipelines with concurrency control
-    async function runPipelinePhase(
-      pipelineConfigs: ReturnType<typeof buildPipelineConfigs>
-    ): Promise<void> {
+    function buildMobileGrayboxPipelineConfigs(): PipelineConfigEntry[] {
+      return [
+        { vulnType: 'injection', vulnAgent: 'mobile-injection-vuln', exploitAgent: 'mobile-injection-exploit',
+          runVuln: a.runMobileInjectionVulnAgent, runExploit: a.runMobileInjectionExploitAgent },
+        { vulnType: 'xss', vulnAgent: 'mobile-xss-vuln', exploitAgent: 'mobile-xss-exploit',
+          runVuln: a.runMobileXssVulnAgent, runExploit: a.runMobileXssExploitAgent },
+        { vulnType: 'auth', vulnAgent: 'mobile-auth-vuln', exploitAgent: 'mobile-auth-exploit',
+          runVuln: a.runMobileAuthVulnAgent, runExploit: a.runMobileAuthExploitAgent },
+        { vulnType: 'ssrf', vulnAgent: 'mobile-ssrf-vuln', exploitAgent: 'mobile-ssrf-exploit',
+          runVuln: a.runMobileSsrfVulnAgent, runExploit: a.runMobileSsrfExploitAgent },
+        { vulnType: 'authz', vulnAgent: 'mobile-authz-vuln', exploitAgent: 'mobile-authz-exploit',
+          runVuln: a.runMobileAuthzVulnAgent, runExploit: a.runMobileAuthzExploitAgent },
+      ];
+    }
+
+    function buildApiGrayboxPipelineConfigs(): PipelineConfigEntry[] {
+      return [
+        { vulnType: 'injection', vulnAgent: 'api-injection-vuln', exploitAgent: 'api-injection-exploit',
+          runVuln: a.runApiInjectionVulnAgent, runExploit: a.runApiInjectionExploitAgent },
+        { vulnType: 'xss', vulnAgent: 'api-xss-vuln', exploitAgent: 'api-xss-exploit',
+          runVuln: a.runApiXssVulnAgent, runExploit: a.runApiXssExploitAgent },
+        { vulnType: 'auth', vulnAgent: 'api-auth-vuln', exploitAgent: 'api-auth-exploit',
+          runVuln: a.runApiAuthVulnAgent, runExploit: a.runApiAuthExploitAgent },
+        { vulnType: 'ssrf', vulnAgent: 'api-ssrf-vuln', exploitAgent: 'api-ssrf-exploit',
+          runVuln: a.runApiSsrfVulnAgent, runExploit: a.runApiSsrfExploitAgent },
+        { vulnType: 'authz', vulnAgent: 'api-authz-vuln', exploitAgent: 'api-authz-exploit',
+          runVuln: a.runApiAuthzVulnAgent, runExploit: a.runApiAuthzExploitAgent },
+      ];
+    }
+
+    // Run vuln→exploit pipelines for every (persona × vuln-type) pair in parallel,
+    // bounded by max_concurrent_pipelines. Failure of one pair never blocks others.
+    async function runPipelinePhase(pipelineConfigs: PipelineConfigEntry[]): Promise<void> {
       state.currentPhase = 'vulnerability-exploitation';
       state.currentAgent = 'pipelines';
       await a.logPhaseTransition(activityInput, 'vulnerability-exploitation', 'start');
@@ -477,17 +590,22 @@ export async function pentestPipelineWorkflow(
       const maxConcurrent = input.pipelineConfig?.max_concurrent_pipelines ?? 5;
       const pipelineThunks: Array<() => Promise<VulnExploitPipelineResult>> = [];
 
-      for (const config of pipelineConfigs) {
-        if (!shouldSkip(config.vulnAgent) || !shouldSkip(config.exploitAgent)) {
-          pipelineThunks.push(
-            () => runVulnExploitPipeline(
-              config.vulnType, config.vulnAgent, config.exploitAgent,
-              config.runVuln, config.runExploit
-            )
-          );
-        } else {
-          log.info(`Skipping entire ${config.vulnType} pipeline (both agents complete)`);
-          state.completedAgents.push(config.vulnAgent, config.exploitAgent);
+      for (const persona of personas) {
+        for (const config of pipelineConfigs) {
+          const qualifiedVuln = qualifiedAgent(persona.name, config.vulnAgent);
+          const qualifiedExploit = qualifiedAgent(persona.name, config.exploitAgent);
+          if (!shouldSkip(qualifiedVuln) || !shouldSkip(qualifiedExploit)) {
+            pipelineThunks.push(
+              () => runVulnExploitPipeline(
+                persona.name,
+                config.vulnType, config.vulnAgent, config.exploitAgent,
+                config.runVuln, config.runExploit
+              )
+            );
+          } else {
+            log.info(`Skipping entire ${config.vulnType} pipeline for ${persona.name} (both agents complete)`);
+            state.completedAgents.push(qualifiedVuln, qualifiedExploit);
+          }
         }
       }
 
@@ -499,31 +617,80 @@ export async function pentestPipelineWorkflow(
       await a.logPhaseTransition(activityInput, 'vulnerability-exploitation', 'complete');
     }
 
-    if (isGraybox) {
+    log.info(`Personas in this run: ${personas.map((p) => p.name).join(', ')}`);
+
+    if (isApi) {
+      log.info('Starting API graybox pipeline mode');
+      await runSequentialPhase('discovery', 'api-discovery', a.runApiDiscoveryAgent);
+      await runAuthMapperPhase('api-auth-mapper', a.runApiAuthMapperAgent);
+      await runPipelinePhase(buildApiGrayboxPipelineConfigs());
+
+    } else if (isMobile) {
+      log.info('Starting mobile graybox pipeline mode');
+      await runSequentialPhase('discovery', 'mobile-discovery', a.runMobileDiscoveryAgent);
+      await runAuthMapperPhase('mobile-auth-mapper', a.runMobileAuthMapperAgent);
+      await runPipelinePhase(buildMobileGrayboxPipelineConfigs());
+
+    } else if (isGraybox) {
       log.info('Starting gray-box pipeline mode');
-      // === Phase 1: Discovery ===
       await runSequentialPhase('discovery', 'discovery', a.runDiscoveryAgent);
-
-      // === Phase 2: Auth Mapping ===
-      await runSequentialPhase('auth-mapper', 'auth-mapper', a.runAuthMapperAgent);
-
-      // === Phases 3-4: Vulnerability Analysis + Exploitation (Pipelined) ===
+      await runAuthMapperPhase('auth-mapper', a.runAuthMapperAgent);
+      await a.aggregateAuthMapsActivity(activityInput);
       await runPipelinePhase(buildGrayboxPipelineConfigs());
 
     } else {
-      log.info('Starting white-box pipeline mode');
-      // === Phase 1: Pre-Reconnaissance ===
-      await runSequentialPhase('pre-recon', 'pre-recon', a.runPreReconAgent);
-
-      // === Phase 2: Reconnaissance ===
-      await runSequentialPhase('recon', 'recon', a.runReconAgent);
-
-      // === Phases 3-4: Vulnerability Analysis + Exploitation (Pipelined) ===
-      await runPipelinePhase(buildPipelineConfigs());
+      // DISABLED: whitebox pipeline branch — runtime deprecated. Kept as reference.
+      // Uncomment buildPipelineConfigs + the whitebox activity exports to restore.
+      // log.info('Starting white-box pipeline mode');
+      // // === Phase 1: Pre-Reconnaissance ===
+      // await runSequentialPhase('pre-recon', 'pre-recon', a.runPreReconAgent);
+      //
+      // // === Phase 2: Reconnaissance ===
+      // await runSequentialPhase('recon', 'recon', a.runReconAgent);
+      //
+      // // === Phases 3-4: Vulnerability Analysis + Exploitation (Pipelined) ===
+      // await runPipelinePhase(buildPipelineConfigs());
+      throw new Error(
+        'Whitebox pipeline is disabled. Set pipeline.mode to "graybox" (or use target mobile/api) in your config.'
+      );
     }
 
     // === Phase 5: Reporting ===
-    if (isGraybox) {
+    if (isApi) {
+      const reportAgent = 'api-report';
+      if (!shouldSkip(reportAgent)) {
+        state.currentPhase = 'reporting';
+        state.currentAgent = reportAgent;
+        await a.logPhaseTransition(activityInput, 'reporting', 'start');
+
+        await a.assembleReportActivity(activityInput);
+        state.agentMetrics[reportAgent] = await a.runApiReportAgent(activityInput);
+        state.completedAgents.push(reportAgent);
+
+        await a.injectReportMetadataActivity(activityInput);
+        await a.logPhaseTransition(activityInput, 'reporting', 'complete');
+      } else {
+        log.info('Skipping api-report (already complete)');
+        state.completedAgents.push(reportAgent);
+      }
+    } else if (isMobile) {
+      const reportAgent = 'mobile-report';
+      if (!shouldSkip(reportAgent)) {
+        state.currentPhase = 'reporting';
+        state.currentAgent = reportAgent;
+        await a.logPhaseTransition(activityInput, 'reporting', 'start');
+
+        await a.assembleReportActivity(activityInput);
+        state.agentMetrics[reportAgent] = await a.runMobileReportAgent(activityInput);
+        state.completedAgents.push(reportAgent);
+
+        await a.injectReportMetadataActivity(activityInput);
+        await a.logPhaseTransition(activityInput, 'reporting', 'complete');
+      } else {
+        log.info('Skipping mobile-report (already complete)');
+        state.completedAgents.push(reportAgent);
+      }
+    } else if (isGraybox) {
       const reportAgent = 'graybox-report';
       if (!shouldSkip(reportAgent)) {
         state.currentPhase = 'reporting';
@@ -542,22 +709,26 @@ export async function pentestPipelineWorkflow(
         state.completedAgents.push(reportAgent);
       }
     } else {
-      if (!shouldSkip('report')) {
-        state.currentPhase = 'reporting';
-        state.currentAgent = 'report';
-        await a.logPhaseTransition(activityInput, 'reporting', 'start');
-
-        // Assemble whitebox exploitation evidence, then run report agent
-        await a.assembleReportActivity(activityInput);
-        state.agentMetrics['report'] = await a.runReportAgent(activityInput);
-        state.completedAgents.push('report');
-
-        await a.injectReportMetadataActivity(activityInput);
-        await a.logPhaseTransition(activityInput, 'reporting', 'complete');
-      } else {
-        log.info('Skipping report (already complete)');
-        state.completedAgents.push('report');
-      }
+      // DISABLED: whitebox report branch — runtime deprecated. Kept as reference.
+      // if (!shouldSkip('report')) {
+      //   state.currentPhase = 'reporting';
+      //   state.currentAgent = 'report';
+      //   await a.logPhaseTransition(activityInput, 'reporting', 'start');
+      //
+      //   // Assemble whitebox exploitation evidence, then run report agent
+      //   await a.assembleReportActivity(activityInput);
+      //   state.agentMetrics['report'] = await a.runReportAgent(activityInput);
+      //   state.completedAgents.push('report');
+      //
+      //   await a.injectReportMetadataActivity(activityInput);
+      //   await a.logPhaseTransition(activityInput, 'reporting', 'complete');
+      // } else {
+      //   log.info('Skipping report (already complete)');
+      //   state.completedAgents.push('report');
+      // }
+      throw new Error(
+        'Whitebox reporting branch is disabled. Set pipeline.mode to "graybox" (or use target mobile/api) in your config.'
+      );
     }
 
     state.status = 'completed';

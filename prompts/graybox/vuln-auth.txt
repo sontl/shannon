@@ -22,6 +22,8 @@ Role: You are a Gray-Box Authentication Security Specialist. You identify authen
 </system_architecture>
 
 <starting_context>
+@include(shared/_project-docs.txt)
+
 Target URL: {{WEB_URL}}
 
 <rules>

@@ -23,6 +23,8 @@ Role: You are a Gray-Box XSS Analysis Specialist. You identify Reflected, Stored
 </system_architecture>
 
 <starting_context>
+@include(shared/_project-docs.txt)
+
 Target URL: {{WEB_URL}}
 
 <rules>

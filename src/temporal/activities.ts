@@ -32,8 +32,9 @@ import type { AgentMetrics, ResumeState } from './shared.js';
 import { copyDeliverablesToAudit, type SessionMetadata } from '../audit/utils.js';
 import { readJson, fileExists } from '../utils/file-io.js';
 import { assembleFinalReport, injectModelIntoReport } from '../services/reporting.js';
+import { aggregatePersonaAuthMaps } from '../services/auth-map-aggregator.js';
 import { AGENTS } from '../session-manager.js';
-import { executeGitCommandWithRetry } from '../services/git-manager.js';
+import { executeGitCommandWithRetry, isGitRepository } from '../services/git-manager.js';
 import type { ResumeAttempt } from '../audit/metrics-tracker.js';
 import { createActivityLogger } from './activity-logger.js';
 import { runPreflightChecks } from '../services/preflight.js';
@@ -53,13 +54,28 @@ const HEARTBEAT_INTERVAL_MS = 2000;
  */
 export interface ActivityInput {
   webUrl: string;
+  // Read-only project docs folder (see PipelineInput for semantics).
   repoPath: string;
+  // Agent cwd + deliverables root (see PipelineInput for semantics).
+  workspacePath: string;
   configPath?: string;
   outputPath?: string;
   pipelineTestingMode?: boolean;
   pipelineMode?: 'whitebox' | 'graybox';
+  pipelineTarget?: 'web' | 'mobile' | 'api';
   workflowId: string;
   sessionId: string;
+  // Mobile-specific fields
+  appPath?: string;
+  platform?: 'android' | 'ios';
+  deviceId?: string;
+  appiumUrl?: string;
+  backendApiUrl?: string;
+  bundleId?: string;
+  // Persona context — set for persona-specific agent invocations (auth-mapper,
+  // vuln/exploit). Discovery and report run shared (no persona). The exploit-authz
+  // agent is the only one that reads ALL persona token files for cross-role tests.
+  personaName?: string;
 }
 
 /**
@@ -107,7 +123,7 @@ async function runAgentActivity(
   agentName: AgentName,
   input: ActivityInput
 ): Promise<AgentMetrics> {
-  const { repoPath, configPath, pipelineTestingMode = false, workflowId, webUrl } = input;
+  const { repoPath, workspacePath, configPath, pipelineTestingMode = false, workflowId, webUrl } = input;
   const startTime = Date.now();
   const attemptNumber = Context.current().info.attempt;
 
@@ -136,9 +152,17 @@ async function runAgentActivity(
       {
         webUrl,
         repoPath,
+        workspacePath,
         configPath,
         pipelineTestingMode,
         attemptNumber,
+        ...(input.bundleId && { bundleId: input.bundleId }),
+        ...(input.deviceId && { deviceId: input.deviceId }),
+        ...(input.appiumUrl && { appiumUrl: input.appiumUrl }),
+        ...(input.appPath && { appPath: input.appPath }),
+        ...(input.platform && { platform: input.platform }),
+        ...(input.backendApiUrl && { backendApiUrl: input.backendApiUrl }),
+        ...(input.personaName && { personaName: input.personaName }),
       },
       auditSession,
       logger
@@ -197,57 +221,60 @@ async function runAgentActivity(
   }
 }
 
-export async function runPreReconAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('pre-recon', input);
-}
-
-export async function runReconAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('recon', input);
-}
-
-export async function runInjectionVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('injection-vuln', input);
-}
-
-export async function runXssVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('xss-vuln', input);
-}
-
-export async function runAuthVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('auth-vuln', input);
-}
-
-export async function runSsrfVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('ssrf-vuln', input);
-}
-
-export async function runAuthzVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('authz-vuln', input);
-}
-
-export async function runInjectionExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('injection-exploit', input);
-}
-
-export async function runXssExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('xss-exploit', input);
-}
-
-export async function runAuthExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('auth-exploit', input);
-}
-
-export async function runSsrfExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('ssrf-exploit', input);
-}
-
-export async function runAuthzExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('authz-exploit', input);
-}
-
-export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('report', input);
-}
+// DISABLED: whitebox activity exports — runtime deprecated. Kept as reference.
+// Uncomment (and re-enable WHITEBOX_AGENTS in src/types/agents.ts plus the
+// corresponding AGENTS entries in src/session-manager.ts) to restore.
+// export async function runPreReconAgent(input: ActivityInput): Promise<AgentMetrics> {
+//   return runAgentActivity('pre-recon', input);
+// }
+//
+// export async function runReconAgent(input: ActivityInput): Promise<AgentMetrics> {
+//   return runAgentActivity('recon', input);
+// }
+//
+// export async function runInjectionVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+//   return runAgentActivity('injection-vuln', input);
+// }
+//
+// export async function runXssVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+//   return runAgentActivity('xss-vuln', input);
+// }
+//
+// export async function runAuthVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+//   return runAgentActivity('auth-vuln', input);
+// }
+//
+// export async function runSsrfVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+//   return runAgentActivity('ssrf-vuln', input);
+// }
+//
+// export async function runAuthzVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+//   return runAgentActivity('authz-vuln', input);
+// }
+//
+// export async function runInjectionExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+//   return runAgentActivity('injection-exploit', input);
+// }
+//
+// export async function runXssExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+//   return runAgentActivity('xss-exploit', input);
+// }
+//
+// export async function runAuthExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+//   return runAgentActivity('auth-exploit', input);
+// }
+//
+// export async function runSsrfExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+//   return runAgentActivity('ssrf-exploit', input);
+// }
+//
+// export async function runAuthzExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+//   return runAgentActivity('authz-exploit', input);
+// }
+//
+// export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics> {
+//   return runAgentActivity('report', input);
+// }
 
 // Gray-box activities
 export async function runDiscoveryAgent(input: ActivityInput): Promise<AgentMetrics> {
@@ -304,6 +331,112 @@ export async function runGrayboxReportAgent(input: ActivityInput): Promise<Agent
   return runAgentActivity('graybox-report', input);
 }
 
+// Mobile graybox activities
+export async function runMobileDiscoveryAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('mobile-discovery', input);
+}
+
+export async function runMobileAuthMapperAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('mobile-auth-mapper', input);
+}
+
+export async function runMobileInjectionVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('mobile-injection-vuln', input);
+}
+
+export async function runMobileXssVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('mobile-xss-vuln', input);
+}
+
+export async function runMobileAuthVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('mobile-auth-vuln', input);
+}
+
+export async function runMobileSsrfVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('mobile-ssrf-vuln', input);
+}
+
+export async function runMobileAuthzVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('mobile-authz-vuln', input);
+}
+
+export async function runMobileInjectionExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('mobile-injection-exploit', input);
+}
+
+export async function runMobileXssExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('mobile-xss-exploit', input);
+}
+
+export async function runMobileAuthExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('mobile-auth-exploit', input);
+}
+
+export async function runMobileSsrfExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('mobile-ssrf-exploit', input);
+}
+
+export async function runMobileAuthzExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('mobile-authz-exploit', input);
+}
+
+export async function runMobileReportAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('mobile-report', input);
+}
+
+// API graybox activities
+export async function runApiDiscoveryAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('api-discovery', input);
+}
+
+export async function runApiAuthMapperAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('api-auth-mapper', input);
+}
+
+export async function runApiInjectionVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('api-injection-vuln', input);
+}
+
+export async function runApiXssVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('api-xss-vuln', input);
+}
+
+export async function runApiAuthVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('api-auth-vuln', input);
+}
+
+export async function runApiSsrfVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('api-ssrf-vuln', input);
+}
+
+export async function runApiAuthzVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('api-authz-vuln', input);
+}
+
+export async function runApiInjectionExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('api-injection-exploit', input);
+}
+
+export async function runApiXssExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('api-xss-exploit', input);
+}
+
+export async function runApiAuthExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('api-auth-exploit', input);
+}
+
+export async function runApiSsrfExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('api-ssrf-exploit', input);
+}
+
+export async function runApiAuthzExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('api-authz-exploit', input);
+}
+
+export async function runApiReportAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('api-report', input);
+}
+
 /**
  * Preflight validation activity.
  *
@@ -327,7 +460,7 @@ export async function runPreflightValidation(input: ActivityInput): Promise<void
     const logger = createActivityLogger();
     logger.info('Running preflight validation...', { attempt: attemptNumber });
 
-    const result = await runPreflightChecks(input.repoPath, input.configPath, logger);
+    const result = await runPreflightChecks(input.repoPath, input.configPath, logger, input.pipelineTarget || 'web');
 
     if (isErr(result)) {
       const classified = classifyErrorForTemporal(result.error);
@@ -374,11 +507,17 @@ export async function runPreflightValidation(input: ActivityInput): Promise<void
  * Assemble the final report by concatenating exploitation evidence files.
  */
 export async function assembleReportActivity(input: ActivityInput): Promise<void> {
-  const { repoPath, pipelineMode = 'whitebox' } = input;
+  // DISABLED: whitebox runtime deprecated — default mode is now 'graybox'.
+  const { workspacePath, pipelineMode = 'graybox', pipelineTarget = 'web' } = input;
+  const reportMode = pipelineTarget === 'api'
+    ? 'api' as const
+    : pipelineTarget === 'mobile'
+      ? 'mobile' as const
+      : pipelineMode;
   const logger = createActivityLogger();
   logger.info('Assembling deliverables from specialist agents...');
   try {
-    await assembleFinalReport(repoPath, logger, pipelineMode);
+    await assembleFinalReport(workspacePath, logger, reportMode);
   } catch (error) {
     const err = error as Error;
     logger.warn(`Error assembling final report: ${err.message}`);
@@ -386,16 +525,35 @@ export async function assembleReportActivity(input: ActivityInput): Promise<void
 }
 
 /**
+ * Merge per-persona auth maps into the canonical graybox_auth_map.md.
+ *
+ * Runs after the auth-mapper phase completes. Failures are logged but do not
+ * abort the workflow — downstream agents can still read per-persona files
+ * directly from deliverables/auth/.
+ */
+export async function aggregateAuthMapsActivity(input: ActivityInput): Promise<void> {
+  const { workspacePath } = input;
+  const logger = createActivityLogger();
+  logger.info('Aggregating per-persona auth maps...');
+  try {
+    await aggregatePersonaAuthMaps(workspacePath, logger);
+  } catch (error) {
+    const err = error as Error;
+    logger.warn(`Error aggregating persona auth maps: ${err.message}`);
+  }
+}
+
+/**
  * Inject model metadata into the final report.
  */
 export async function injectReportMetadataActivity(input: ActivityInput): Promise<void> {
-  const { repoPath, sessionId, outputPath } = input;
+  const { workspacePath, sessionId, outputPath } = input;
   const logger = createActivityLogger();
   const effectiveOutputPath = outputPath
     ? path.join(outputPath, sessionId)
     : path.join('./audit-logs', sessionId);
   try {
-    await injectModelIntoReport(repoPath, effectiveOutputPath, logger);
+    await injectModelIntoReport(workspacePath, effectiveOutputPath, logger);
   } catch (error) {
     const err = error as Error;
     logger.warn(`Error injecting model into report: ${err.message}`);
@@ -412,14 +570,15 @@ export async function checkExploitationQueue(
   input: ActivityInput,
   vulnType: VulnType
 ): Promise<ExploitationDecision> {
-  const { repoPath, workflowId } = input;
+  const { workspacePath, workflowId } = input;
   const logger = createActivityLogger();
 
   // Reuse container's service if available (from prior vuln agent runs)
   const existingContainer = getContainer(workflowId);
   const checker = existingContainer?.exploitationChecker ?? new ExploitationCheckerService();
 
-  return checker.checkQueue(vulnType, repoPath, logger);
+  // Queue JSON is written by vuln agents under {workspacePath}/deliverables/
+  return checker.checkQueue(vulnType, workspacePath, logger);
 }
 
 interface SessionJson {
@@ -441,13 +600,64 @@ interface SessionJson {
   };
 }
 
+// Per-persona file patterns for agents that fan out across personas.
+// Each entry maps an unqualified agent name to the regex extracting the
+// persona name from a deliverable filename under deliverables/auth/.
+const PERSONA_AGENT_FILE_PATTERNS: Record<string, RegExp> = {
+  'auth-mapper': /^graybox_auth_map_(.+)\.md$/,
+};
+
+/**
+ * Inspect deliverables/auth/ for per-persona auth-mapper outputs and append
+ * qualified `<persona>/<agentName>` entries to completedAgents in-place.
+ *
+ * The unqualified entry was already pushed by the caller in step 3 when the
+ * canonical deliverable exists. This function adds the per-persona detail so
+ * the resume can skip individual personas inside runAuthMapperPhase.
+ */
+async function augmentWithPersonaCompletions(
+  completedAgents: string[],
+  expectedWorkspacePath: string
+): Promise<void> {
+  const authDir = path.join(expectedWorkspacePath, 'deliverables', 'auth');
+
+  let entries: string[];
+  try {
+    entries = await fs.readdir(authDir);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return;
+    }
+    throw error;
+  }
+
+  for (const [agentName, pattern] of Object.entries(PERSONA_AGENT_FILE_PATTERNS)) {
+    if (!completedAgents.includes(agentName)) {
+      continue;
+    }
+    for (const filename of entries) {
+      const match = filename.match(pattern);
+      if (match && match[1]) {
+        const qualified = `${match[1]}/${agentName}`;
+        if (!completedAgents.includes(qualified)) {
+          completedAgents.push(qualified);
+        }
+      }
+    }
+  }
+}
+
 /**
  * Load resume state from an existing workspace.
+ *
+ * `expectedWorkspacePath` is the agent's workspace (./audit-logs/<sessionId>/),
+ * which is where deliverables live. Historically this arg was the repo path
+ * (source code / docs folder), but deliverables are no longer stored there.
  */
 export async function loadResumeState(
   workspaceName: string,
   expectedUrl: string,
-  expectedRepoPath: string
+  expectedWorkspacePath: string
 ): Promise<ResumeState> {
   // 1. Validate workspace exists
   const sessionPath = path.join('./audit-logs', workspaceName, 'session.json');
@@ -490,7 +700,7 @@ export async function loadResumeState(
     }
 
     const deliverableFilename = AGENTS[agentName].deliverableFilename;
-    const deliverablePath = `${expectedRepoPath}/deliverables/${deliverableFilename}`;
+    const deliverablePath = `${expectedWorkspacePath}/deliverables/${deliverableFilename}`;
     const deliverableExists = await fileExists(deliverablePath);
 
     if (!deliverableExists) {
@@ -502,12 +712,15 @@ export async function loadResumeState(
     completedAgents.push(agentName);
   }
 
-  // 4. Collect git checkpoints and validate at least one exists
-  const checkpoints = completedAgents
-    .map((name) => agents[name]?.checkpoint)
-    .filter((hash): hash is string => hash != null);
+  // 3b. Persona-aware resume — for auth-mapper agents, scan per-persona files
+  // and push qualified `<persona>/<agentName>` entries so runAuthMapperPhase
+  // can skip personas that already finished. Without this, the per-persona
+  // skip check (workflows.ts) misses every persona because completedAgents
+  // only carries unqualified names.
+  await augmentWithPersonaCompletions(completedAgents, expectedWorkspacePath);
 
-  if (checkpoints.length === 0) {
+  // 4. Validate that at least one agent completed with deliverables
+  if (completedAgents.length === 0) {
     const successAgents = Object.entries(agents)
       .filter(([, data]) => data.status === 'success')
       .map(([name]) => name);
@@ -523,8 +736,18 @@ export async function loadResumeState(
     );
   }
 
-  // 5. Find the most recent checkpoint commit
-  const checkpointHash = await findLatestCommit(expectedRepoPath, checkpoints);
+  // 5. Find the most recent git checkpoint (optional — mobile workspaces may lack git history)
+  const checkpoints = completedAgents
+    .map((name) => agents[name]?.checkpoint)
+    .filter((hash): hash is string => hash != null);
+
+  let checkpointHash: string;
+  if (checkpoints.length > 0) {
+    checkpointHash = await findLatestCommit(expectedWorkspacePath, checkpoints);
+  } else {
+    // No git checkpoints — use HEAD or empty hash (workspace without git history)
+    checkpointHash = 'HEAD';
+  }
   const originalWorkflowId = session.session.originalWorkflowId || session.session.id;
 
   // 6. Log summary and return resume state
@@ -570,29 +793,36 @@ async function findLatestCommit(repoPath: string, commitHashes: string[]): Promi
 
 /**
  * Restore git workspace to a checkpoint and clean up partial deliverables.
+ * The workspace is ./audit-logs/<sessionId>/. Git ops are skipped if the
+ * workspace isn't a git repo (graybox workspaces typically aren't).
  */
 export async function restoreGitCheckpoint(
-  repoPath: string,
+  workspacePath: string,
   checkpointHash: string,
   incompleteAgents: AgentName[]
 ): Promise<void> {
   const logger = createActivityLogger();
-  logger.info(`Restoring git workspace to ${checkpointHash}...`);
+  logger.info(`Restoring workspace to ${checkpointHash}...`);
 
-  await executeGitCommandWithRetry(
-    ['git', 'reset', '--hard', checkpointHash],
-    repoPath,
-    'reset to checkpoint for resume'
-  );
-  await executeGitCommandWithRetry(
-    ['git', 'clean', '-fd'],
-    repoPath,
-    'clean untracked files for resume'
-  );
+  const isGit = await isGitRepository(workspacePath);
+  if (isGit && checkpointHash !== 'HEAD') {
+    await executeGitCommandWithRetry(
+      ['git', 'reset', '--hard', checkpointHash],
+      workspacePath,
+      'reset to checkpoint for resume'
+    );
+    await executeGitCommandWithRetry(
+      ['git', 'clean', '-fd', '-e', 'agents', '-e', 'prompts', '-e', 'deliverables'],
+      workspacePath,
+      'clean untracked files for resume'
+    );
+  } else {
+    logger.info('Skipping git reset (workspace is not a git repo or no checkpoint)');
+  }
 
   for (const agentName of incompleteAgents) {
     const deliverableFilename = AGENTS[agentName].deliverableFilename;
-    const deliverablePath = `${repoPath}/deliverables/${deliverableFilename}`;
+    const deliverablePath = `${workspacePath}/deliverables/${deliverableFilename}`;
     try {
       const exists = await fileExists(deliverablePath);
       if (exists) {
@@ -660,7 +890,7 @@ export async function logWorkflowComplete(
   input: ActivityInput,
   summary: WorkflowSummary
 ): Promise<void> {
-  const { repoPath, workflowId } = input;
+  const { workspacePath, workflowId } = input;
   const sessionMetadata = buildSessionMetadata(input);
 
   // 1. Initialize audit session and mark final status
@@ -702,9 +932,9 @@ export async function logWorkflowComplete(
   // 5. Write completion entry to workflow.log
   await auditSession.logWorkflowComplete(cumulativeSummary);
 
-  // 6. Copy deliverables to audit-logs
+  // 6. Copy deliverables to audit-logs (no-op when workspacePath is already the audit dir)
   try {
-    await copyDeliverablesToAudit(sessionMetadata, repoPath);
+    await copyDeliverablesToAudit(sessionMetadata, workspacePath);
   } catch (copyErr) {
     const logger = createActivityLogger();
     logger.error('Failed to copy deliverables to audit-logs', {

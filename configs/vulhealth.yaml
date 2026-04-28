@@ -1,0 +1,81 @@
+# Shannon multi-persona config for VulHealth
+#
+# Run from the shannon/ directory:
+#   ./shannon start URL=http://host.docker.internal:4000 \
+#                   REPO=vulhealth \
+#                   CONFIG=./configs/vulhealth.yaml
+#
+# This run exercises cross-role IDOR + privilege escalation across all four
+# VulHealth roles. Discovery runs once (shared); auth-mapper + every vuln/exploit
+# pair runs four times in parallel — once per persona. The authz exploit agent
+# reads every persona's token bundle so it can demonstrate, for example, alice
+# (patient) accessing dr.smith's medical records or admin-only endpoints.
+
+pipeline:
+  target: web
+  mode: graybox
+  # 4 personas × 5 vuln types = 20 vuln/exploit pairs total. Cap concurrency at
+  # 5 so we never run more than 5 Playwright instances at once on the host.
+  max_concurrent_pipelines: "5"
+
+authentication:
+  login_type: form
+  login_url: http://host.docker.internal:4000/login
+  login_flow:
+    - "Navigate to /login"
+    - "Fill the username field with $username"
+    - "Fill the password field with $password"
+    - "Click the 'Sign in' button"
+  success_condition:
+    type: url_contains
+    value: "/"
+  personas:
+    - name: alice
+      role: patient
+      credentials:
+        username: alice
+        password: password
+    - name: dr_smith
+      role: doctor
+      credentials:
+        username: dr.smith
+        password: smith2024
+    - name: reception
+      role: receptionist
+      credentials:
+        username: reception
+        password: reception
+    - name: admin
+      role: administrator
+      credentials:
+        username: admin
+        password: admin123
+
+rules:
+  focus:
+    - description: "Medical records — primary IDOR target across patient/doctor boundaries"
+      type: path
+      url_path: /api/medical-records
+    - description: "Admin user management — exposes password hashes (vertical escalation surface)"
+      type: path
+      url_path: /api/admin/users
+    - description: "Admin diagnostic ping — SSRF-prone endpoint"
+      type: path
+      url_path: /admin/ping
+    - description: "Department import — XML/XXE-prone endpoint"
+      type: path
+      url_path: /admin/import/departments
+    - description: "Appointments — cross-patient access via appointment IDs"
+      type: path
+      url_path: /api/appointments
+    - description: "Messaging — patient-doctor messages, possible cross-conversation IDOR"
+      type: path
+      url_path: /api/messages
+
+  avoid:
+    - description: "Logout — would invalidate persona sessions mid-run"
+      type: path
+      url_path: /logout
+    - description: "Backup endpoint — destructive, may flush state"
+      type: path
+      url_path: /admin/backup

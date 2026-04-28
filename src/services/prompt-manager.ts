@@ -7,13 +7,26 @@
 import { fs, path } from 'zx';
 import { PentestError, handlePromptError } from './error-handling.js';
 import { MCP_AGENT_MAPPING } from '../session-manager.js';
-import type { Authentication, DistributedConfig } from '../types/config.js';
+import type { Authentication, DistributedConfig, Persona } from '../types/config.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 
 interface PromptVariables {
   webUrl: string;
   repoPath: string;
   MCP_SERVER?: string;
+  // Human-readable summary of which optional subfolders are present under repoPath
+  // (e.g., "docs, schemas, auth" or "docs only"). Injected via {{DOCS_STRUCTURE}}.
+  docsStructure?: string;
+  // Mobile-specific variables (optional — only set when target=mobile)
+  appPath?: string;
+  platform?: string;
+  deviceId?: string;
+  appiumUrl?: string;
+  backendApiUrl?: string;
+  bundleId?: string;
+  // Persona context for the agent invocation. When set, login instructions and
+  // {{PERSONA_*}} placeholders are interpolated for this specific persona.
+  personaName?: string;
 }
 
 interface IncludeReplacement {
@@ -21,10 +34,25 @@ interface IncludeReplacement {
   content: string;
 }
 
-// Pure function: Build complete login instructions from config
-async function buildLoginInstructions(authentication: Authentication, logger: ActivityLogger): Promise<string> {
+// Resolve effective login config for a persona — persona-level overrides win
+// over the authentication-level defaults.
+function resolvePersonaLogin(
+  persona: Persona,
+  authentication: Authentication
+): { login_flow: string[]; login_url: string | undefined } {
+  return {
+    login_flow: persona.login_flow ?? authentication.login_flow ?? [],
+    login_url: persona.login_url ?? authentication.login_url,
+  };
+}
+
+// Pure function: Build login instructions for a single persona.
+async function buildLoginInstructions(
+  persona: Persona,
+  authentication: Authentication,
+  logger: ActivityLogger
+): Promise<string> {
   try {
-    // 1. Load the login instructions template
     const loginInstructionsPath = path.join(import.meta.dirname, '..', '..', 'prompts', 'shared', 'login-instructions.txt');
 
     if (!await fs.pathExists(loginInstructionsPath)) {
@@ -44,15 +72,13 @@ async function buildLoginInstructions(authentication: Authentication, logger: Ac
       return match ? match[1]!.trim() : '';
     };
 
-    // 2. Extract sections based on login type
     const loginType = authentication.login_type?.toUpperCase();
     let loginInstructions = '';
 
     const commonSection = getSection(fullTemplate, 'COMMON');
-    const authSection = loginType ? getSection(fullTemplate, loginType) : ''; // FORM or SSO
+    const authSection = loginType ? getSection(fullTemplate, loginType) : '';
     const verificationSection = getSection(fullTemplate, 'VERIFICATION');
 
-    // 3. Assemble instructions from sections (fallback to full template if markers missing)
     if (!commonSection && !authSection && !verificationSection) {
       logger.warn('Section markers not found, using full login instructions template');
       loginInstructions = fullTemplate;
@@ -62,26 +88,24 @@ async function buildLoginInstructions(authentication: Authentication, logger: Ac
         .join('\n\n');
     }
 
-    // 4. Interpolate login flow and credential placeholders
-    let userInstructions = (authentication.login_flow ?? []).join('\n');
+    const effective = resolvePersonaLogin(persona, authentication);
+    let userInstructions = effective.login_flow.join('\n');
 
-    if (authentication.credentials) {
-      if (authentication.credentials.username) {
-        userInstructions = userInstructions.replace(/\$username/g, authentication.credentials.username);
-      }
-      if (authentication.credentials.password) {
-        userInstructions = userInstructions.replace(/\$password/g, authentication.credentials.password);
-      }
-      if (authentication.credentials.totp_secret) {
-        userInstructions = userInstructions.replace(/\$totp/g, `generated TOTP code using secret "${authentication.credentials.totp_secret}"`);
-      }
+    const { credentials } = persona;
+    if (credentials.username) {
+      userInstructions = userInstructions.replace(/\$username/g, credentials.username);
+    }
+    if (credentials.password) {
+      userInstructions = userInstructions.replace(/\$password/g, credentials.password);
+    }
+    if (credentials.totp_secret) {
+      userInstructions = userInstructions.replace(/\$totp/g, `generated TOTP code using secret "${credentials.totp_secret}"`);
     }
 
     loginInstructions = loginInstructions.replace(/{{user_instructions}}/g, userInstructions);
 
-    // 5. Replace TOTP secret placeholder if present in template
-    if (authentication.credentials?.totp_secret) {
-      loginInstructions = loginInstructions.replace(/{{totp_secret}}/g, authentication.credentials.totp_secret);
+    if (credentials.totp_secret) {
+      loginInstructions = loginInstructions.replace(/{{totp_secret}}/g, credentials.totp_secret);
     }
 
     return loginInstructions;
@@ -94,7 +118,7 @@ async function buildLoginInstructions(authentication: Authentication, logger: Ac
       `Failed to build login instructions: ${errMsg}`,
       'config',
       false,
-      { authentication, originalError: errMsg }
+      { personaName: persona.name, originalError: errMsg }
     );
   }
 }
@@ -146,19 +170,35 @@ async function interpolateVariables(
       );
     }
 
-    if (!variables || !variables.webUrl || !variables.repoPath) {
+    const isMobile = !!variables.bundleId || !!variables.appPath;
+
+    if (!variables || (!isMobile && !variables.webUrl) || !variables.repoPath) {
       throw new PentestError(
-        'Variables must include webUrl and repoPath',
+        'Variables must include repoPath (and webUrl for web targets, or appPath for mobile)',
         'validation',
         false,
         { variables: Object.keys(variables || {}) }
       );
     }
 
+    // Resolve persona context (if any) up front for {{PERSONA_*}} placeholders.
+    const activePersona = variables.personaName && config?.authentication
+      ? config.authentication.personas.find(p => p.name === variables.personaName) ?? null
+      : null;
+
     let result = template
-      .replace(/{{WEB_URL}}/g, variables.webUrl)
+      .replace(/{{WEB_URL}}/g, variables.webUrl || variables.backendApiUrl || '')
       .replace(/{{REPO_PATH}}/g, variables.repoPath)
-      .replace(/{{MCP_SERVER}}/g, variables.MCP_SERVER || 'playwright-agent1');
+      .replace(/{{MCP_SERVER}}/g, variables.MCP_SERVER || 'playwright-agent1')
+      .replace(/{{DOCS_STRUCTURE}}/g, variables.docsStructure || 'not scanned')
+      .replace(/{{APP_PATH}}/g, variables.appPath || '')
+      .replace(/{{PLATFORM}}/g, variables.platform || '')
+      .replace(/{{DEVICE_ID}}/g, variables.deviceId || '')
+      .replace(/{{APPIUM_URL}}/g, variables.appiumUrl || 'http://localhost:4723')
+      .replace(/{{BACKEND_API_URL}}/g, variables.backendApiUrl || '')
+      .replace(/{{BUNDLE_ID}}/g, variables.bundleId || '')
+      .replace(/{{PERSONA_NAME}}/g, activePersona?.name || variables.personaName || '')
+      .replace(/{{PERSONA_ROLE}}/g, activePersona?.role || '');
 
     if (config) {
       // Handle rules section - if both are empty, use cleaner messaging
@@ -190,9 +230,12 @@ async function interpolateVariables(
         );
       }
 
-      // Extract and inject login instructions from config
-      if (config.authentication?.login_flow) {
-        const loginInstructions = await buildLoginInstructions(config.authentication, logger);
+      // Build login instructions for the active persona.
+      // Picks: explicit personaName ⟶ first persona ⟶ none.
+      const loginPersona = activePersona ?? config.authentication?.personas[0] ?? null;
+      const hasLoginFlow = !!(loginPersona?.login_flow ?? config.authentication?.login_flow);
+      if (loginPersona && hasLoginFlow) {
+        const loginInstructions = await buildLoginInstructions(loginPersona, config.authentication!, logger);
         result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, loginInstructions);
       } else {
         result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, '');

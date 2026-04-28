@@ -1,0 +1,42 @@
+pipeline:
+  target: api
+  mode: graybox
+  max_concurrent_pipelines: 3
+
+# Schema hint — Shannon discovery agent sẽ ingest trước.
+# FastAPI auto-export tại /openapi.json.
+context:
+  schemas:
+    - url: /openapi.json
+      type: openapi
+
+# Login API mode: Shannon sẽ POST /api/login, lấy token, gắn header.
+authentication:
+  login_type: api
+  credentials:
+    username: alice
+    password: alice2026
+  login_flow:
+    - 'Send POST to /api/login with JSON body {"username":"$username","password":"$password"}'
+    - 'Extract the token from the response JSON field "token"'
+    - 'Use header "Authorization: Bearer [token]" for all subsequent requests'
+  success_condition:
+    type: element_present
+    value: token
+
+rules:
+  focus:
+    - description: "Test notes CRUD"
+      type: path
+      url_path: /api/notes
+    - description: "Test user profile endpoints"
+      type: path
+      url_path: /api/users
+    - description: "Test debug endpoint for command injection"
+      type: path
+      url_path: /api/debug
+
+  avoid:
+    - description: "Avoid spamming login to keep test focused"
+      type: path
+      url_path: /api/auth/logout

@@ -1,0 +1,61 @@
+#  Multi-persona graybox testing — exercises cross-role IDOR and privilege
+#  escalation in a single workflow run. Discovery runs once (shared); auth-mapper
+#  + vuln/exploit run once per persona; the authz exploit phase reads tokens
+#  from every persona to test cross-role boundaries.
+#
+#  Run with:
+#    ./shannon start URL=https://app.example.com REPO=my-target CONFIG=./configs/multi-persona-sample.yaml
+
+pipeline:
+  target: web
+  mode: graybox
+  # Cross-product (personas × 5 vuln types) parallelism is bounded by this cap.
+  # Lower it if your provider rate-limits aggressively. Default 5 is fine for
+  # 2-3 personas; consider 3 if you have 4+ personas.
+  max_concurrent_pipelines: "5"
+
+authentication:
+  login_type: form
+  login_url: https://app.example.com/login
+  # Default flow — personas can override via persona.login_flow.
+  login_flow:
+    - "Navigate to /login"
+    - "Fill the email field with $username"
+    - "Fill the password field with $password"
+    - "Click the 'Sign In' button"
+  success_condition:
+    type: url_contains
+    value: "/dashboard"
+  personas:
+    - name: admin
+      role: administrator
+      credentials:
+        username: admin@example.com
+        password: AdminPass123!
+    - name: manager
+      role: org-manager
+      credentials:
+        username: manager@example.com
+        password: ManagerPass123!
+    - name: viewer
+      role: read-only
+      credentials:
+        username: viewer@example.com
+        password: ViewerPass123!
+
+rules:
+  focus:
+    - description: "User management endpoints — high-value cross-role IDOR target"
+      type: path
+      url_path: /api/users
+    - description: "Org admin endpoints — vertical privilege escalation surface"
+      type: path
+      url_path: /api/admin
+
+  avoid:
+    - description: "Logout endpoints — would invalidate persona sessions mid-run"
+      type: path
+      url_path: /logout
+    - description: "Account deletion — destructive even on test data"
+      type: path
+      url_path: /api/account/delete

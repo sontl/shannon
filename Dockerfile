@@ -60,6 +60,7 @@ RUN apk update && apk add --no-cache \
     git \
     bash \
     curl \
+    jq \
     ca-certificates \
     # Network libraries (runtime)
     libpcap \

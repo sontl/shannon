@@ -48,6 +48,14 @@ MODIFY the existing file `deliverables/comprehensive_security_assessment_report.
 - Assessment Date: {current date}
 - Scope: Authentication, XSS, SQL and Command Injection, SSRF, Authorization testing
 
+## Personas Tested
+
+{Run `ls deliverables/auth/tokens_*.json` to enumerate the personas that completed auth-mapping. For each, list: persona name, role, user_id (if any). If only one persona is present and it is named `default`, this run did NOT exercise multi-role testing — note that explicitly so leadership knows cross-role IDOR coverage was limited.}
+
+## Cross-Persona Findings
+
+{Examine all `Authorization Exploitation Evidence — Persona *` sections. Highlight any cases where one persona accessed another persona's data or successfully escalated to a higher-privilege role's actions. These are the highest-value findings of a multi-persona run. If none, state: "No cross-persona privilege boundary violations were found."}
+
 ## Summary by Vulnerability Type
 
 {For each vulnerability type below, examine the comprehensive_security_assessment_report.md sections and provide a summary. If no section exists for that type or no vulnerabilities are listed, explicitly state that none were found.}

@@ -7,7 +7,7 @@
   "properties": {
     "authentication": {
       "type": "object",
-      "description": "Authentication configuration for the target application",
+      "description": "Authentication configuration for the target application. Provide EITHER 'credentials' (legacy single-user) OR 'personas' (multi-role testing) — not both.",
       "properties": {
         "login_type": {
           "type": "string",
@@ -17,36 +17,24 @@
         "login_url": {
           "type": "string",
           "format": "uri",
-          "description": "URL for the login page or endpoint"
+          "description": "URL for the login page or endpoint (default for all personas)"
         },
         "credentials": {
-          "type": "object",
-          "description": "Login credentials",
-          "properties": {
-            "username": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 255,
-              "description": "Username or email for authentication"
-            },
-            "password": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 255,
-              "description": "Password for authentication"
-            },
-            "totp_secret": {
-              "type": "string",
-              "pattern": "^[A-Za-z2-7]+=*$",
-              "description": "TOTP secret for two-factor authentication (Base32 encoded, case insensitive)"
-            }
+          "$ref": "#/$defs/credentials",
+          "description": "Legacy single-user credentials. Auto-migrated to personas: [{ name: 'default', credentials: ... }] at parse time."
+        },
+        "personas": {
+          "type": "array",
+          "description": "List of personas/roles to test. Each persona has its own credentials and optional login overrides. Enables cross-role IDOR/privilege-escalation testing in a single run.",
+          "items": {
+            "$ref": "#/$defs/persona"
           },
-          "required": ["username", "password"],
-          "additionalProperties": false
+          "minItems": 1,
+          "maxItems": 10
         },
         "login_flow": {
           "type": "array",
-          "description": "Step-by-step instructions for the login process",
+          "description": "Step-by-step instructions for the login process (default for all personas — can be overridden per persona).",
           "items": {
             "type": "string",
             "minLength": 1,
@@ -75,7 +63,11 @@
           "additionalProperties": false
         }
       },
-      "required": ["login_type", "login_url", "credentials", "success_condition"],
+      "required": ["login_type", "success_condition"],
+      "oneOf": [
+        {"required": ["credentials"], "not": {"required": ["personas"]}},
+        {"required": ["personas"], "not": {"required": ["credentials"]}}
+      ],
       "additionalProperties": false
     },
     "pipeline": {
@@ -96,8 +88,54 @@
           "type": "string",
           "enum": ["whitebox", "graybox"],
           "description": "The testing mode (defaults to whitebox if not specified)"
+        },
+        "target": {
+          "type": "string",
+          "enum": ["web", "mobile", "api"],
+          "description": "The target platform (defaults to web if not specified)"
         }
       },
+      "additionalProperties": false
+    },
+    "mobile": {
+      "type": "object",
+      "description": "Mobile app configuration. Required when pipeline.target is 'mobile'.",
+      "properties": {
+        "platform": {
+          "type": "string",
+          "enum": ["android", "ios"],
+          "description": "Mobile platform to test"
+        },
+        "app_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "description": "Path to the APK (Android) or IPA (iOS) file"
+        },
+        "device_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "description": "Specific device or emulator ID (e.g. emulator-5554)"
+        },
+        "appium_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Appium server URL (default: http://localhost:4723)"
+        },
+        "backend_api_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Backend API URL for traffic interception and API testing"
+        },
+        "bundle_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "description": "iOS bundle ID or Android package name (e.g. com.example.app)"
+        }
+      },
+      "required": ["platform"],
       "additionalProperties": false
     },
     "rules": {
@@ -148,10 +186,77 @@
     {"required": ["authentication"]},
     {"required": ["rules"]},
     {"required": ["context"]},
-    {"required": ["authentication", "rules"]}
+    {"required": ["authentication", "rules"]},
+    {"required": ["mobile"]},
+    {"required": ["pipeline"]}
   ],
   "additionalProperties": false,
   "$defs": {
+    "credentials": {
+      "type": "object",
+      "description": "Login credentials for a single user/persona",
+      "properties": {
+        "username": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "description": "Username or email for authentication"
+        },
+        "password": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "description": "Password for authentication"
+        },
+        "totp_secret": {
+          "type": "string",
+          "pattern": "^[A-Za-z2-7]+=*$",
+          "description": "TOTP secret for two-factor authentication (Base32 encoded, case insensitive)"
+        }
+      },
+      "required": ["username", "password"],
+      "additionalProperties": false
+    },
+    "persona": {
+      "type": "object",
+      "description": "A persona/role to test. Has its own credentials and optional login overrides.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]*$",
+          "description": "Identifier for this persona (used in deliverable filenames, must be filesystem-safe)"
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Human-readable role description (e.g. 'administrator', 'viewer'). Surfaced in prompts and reports."
+        },
+        "credentials": {
+          "$ref": "#/$defs/credentials"
+        },
+        "login_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Override the default login_url for this persona only"
+        },
+        "login_flow": {
+          "type": "array",
+          "description": "Override the default login_flow for this persona only",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "minItems": 1,
+          "maxItems": 20
+        }
+      },
+      "required": ["name", "credentials"],
+      "additionalProperties": false
+    },
     "schemaHint": {
       "type": "object",
       "description": "A pointer to an API schema the discovery agent should ingest.",

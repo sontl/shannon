@@ -1,0 +1,31 @@
+<bash_safety>
+**CURL SAFETY RULES (MANDATORY)**
+
+Every `curl` invocation MUST include these flags:
+- `--max-time 10`         — cap total time at 10 seconds per request
+- `--connect-timeout 3`   — cap TCP connect at 3 seconds
+- `--silent` or `-s`      — suppress progress output
+
+Without timeout flags curl can hang for ~2 minutes per unreachable endpoint, which compounds into hours when probing many paths.
+
+**Path Fuzzing Rules**
+- NEVER iterate a path list with sequential curl in a `for` loop. A 30-path list × 2-minute hang = workflow timeout.
+- If parallel path probing is needed, use `xargs -P 8` (or `-P 16`) WITH the timeout flags above.
+- If endpoint coverage is already known from `/repos/{repo}/docs/` or the discovery deliverable, prefer reading those docs over re-probing.
+
+**Failure Handling**
+- Endpoints that time out or return connection refused are SOFT failures — record the observation and move on. Do NOT retry hung requests.
+- Connection refused (port not open) is itself useful evidence — log it, do not keep retrying.
+
+**Example — correct usage**
+```bash
+curl -s --max-time 10 --connect-timeout 3 \
+  -H "Authorization: Bearer $TOKEN" \
+  http://host.docker.internal:3001/api/users/me
+
+# Parallel path probe
+echo -e "/health\n/api/users\n/admin" | xargs -P 8 -I {} \
+  curl -s --max-time 10 --connect-timeout 3 -o /dev/null \
+       -w "{} %{http_code}\n" "http://host.docker.internal:3001{}"
+```
+</bash_safety>

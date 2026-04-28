@@ -6,105 +6,111 @@
 
 import { path, fs } from 'zx';
 import { validateQueueAndDeliverable } from './services/queue-validation.js';
-import type { AgentName, AgentDefinition, PlaywrightAgent, AgentValidator, VulnType } from './types/index.js';
+import type { AgentName, AgentDefinition, PlaywrightAgent, AppiumAgent, ApiAgent, AgentValidator, VulnType } from './types/index.js';
 import type { ActivityLogger } from './types/activity-logger.js';
 
 // Agent definitions according to PRD
 // NOTE: deliverableFilename values must match mcp-server/src/types/deliverables.ts:DELIVERABLE_FILENAMES
+//
+// DISABLED: whitebox runtime deprecated. The 13 whitebox agent entries
+// (pre-recon, recon, injection-vuln, xss-vuln, auth-vuln, ssrf-vuln, authz-vuln,
+// injection-exploit, xss-exploit, auth-exploit, ssrf-exploit, authz-exploit, report)
+// have been commented out below. Kept as reference — uncomment (and re-enable
+// WHITEBOX_AGENTS in src/types/agents.ts) to restore.
 export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freeze({
-  'pre-recon': {
-    name: 'pre-recon',
-    displayName: 'Pre-recon agent',
-    prerequisites: [],
-    promptTemplate: 'pre-recon-code',
-    deliverableFilename: 'code_analysis_deliverable.md',
-    modelTier: 'large',
-  },
-  'recon': {
-    name: 'recon',
-    displayName: 'Recon agent',
-    prerequisites: ['pre-recon'],
-    promptTemplate: 'recon',
-    deliverableFilename: 'recon_deliverable.md',
-  },
-  'injection-vuln': {
-    name: 'injection-vuln',
-    displayName: 'Injection vuln agent',
-    prerequisites: ['recon'],
-    promptTemplate: 'vuln-injection',
-    deliverableFilename: 'injection_analysis_deliverable.md',
-  },
-  'xss-vuln': {
-    name: 'xss-vuln',
-    displayName: 'XSS vuln agent',
-    prerequisites: ['recon'],
-    promptTemplate: 'vuln-xss',
-    deliverableFilename: 'xss_analysis_deliverable.md',
-  },
-  'auth-vuln': {
-    name: 'auth-vuln',
-    displayName: 'Auth vuln agent',
-    prerequisites: ['recon'],
-    promptTemplate: 'vuln-auth',
-    deliverableFilename: 'auth_analysis_deliverable.md',
-  },
-  'ssrf-vuln': {
-    name: 'ssrf-vuln',
-    displayName: 'SSRF vuln agent',
-    prerequisites: ['recon'],
-    promptTemplate: 'vuln-ssrf',
-    deliverableFilename: 'ssrf_analysis_deliverable.md',
-  },
-  'authz-vuln': {
-    name: 'authz-vuln',
-    displayName: 'Authz vuln agent',
-    prerequisites: ['recon'],
-    promptTemplate: 'vuln-authz',
-    deliverableFilename: 'authz_analysis_deliverable.md',
-  },
-  'injection-exploit': {
-    name: 'injection-exploit',
-    displayName: 'Injection exploit agent',
-    prerequisites: ['injection-vuln'],
-    promptTemplate: 'exploit-injection',
-    deliverableFilename: 'injection_exploitation_evidence.md',
-  },
-  'xss-exploit': {
-    name: 'xss-exploit',
-    displayName: 'XSS exploit agent',
-    prerequisites: ['xss-vuln'],
-    promptTemplate: 'exploit-xss',
-    deliverableFilename: 'xss_exploitation_evidence.md',
-  },
-  'auth-exploit': {
-    name: 'auth-exploit',
-    displayName: 'Auth exploit agent',
-    prerequisites: ['auth-vuln'],
-    promptTemplate: 'exploit-auth',
-    deliverableFilename: 'auth_exploitation_evidence.md',
-  },
-  'ssrf-exploit': {
-    name: 'ssrf-exploit',
-    displayName: 'SSRF exploit agent',
-    prerequisites: ['ssrf-vuln'],
-    promptTemplate: 'exploit-ssrf',
-    deliverableFilename: 'ssrf_exploitation_evidence.md',
-  },
-  'authz-exploit': {
-    name: 'authz-exploit',
-    displayName: 'Authz exploit agent',
-    prerequisites: ['authz-vuln'],
-    promptTemplate: 'exploit-authz',
-    deliverableFilename: 'authz_exploitation_evidence.md',
-  },
-  'report': {
-    name: 'report',
-    displayName: 'Report agent',
-    prerequisites: ['injection-exploit', 'xss-exploit', 'auth-exploit', 'ssrf-exploit', 'authz-exploit'],
-    promptTemplate: 'report-executive',
-    deliverableFilename: 'comprehensive_security_assessment_report.md',
-    modelTier: 'small',
-  },
+  // 'pre-recon': {
+  //   name: 'pre-recon',
+  //   displayName: 'Pre-recon agent',
+  //   prerequisites: [],
+  //   promptTemplate: 'pre-recon-code',
+  //   deliverableFilename: 'code_analysis_deliverable.md',
+  //   modelTier: 'large',
+  // },
+  // 'recon': {
+  //   name: 'recon',
+  //   displayName: 'Recon agent',
+  //   prerequisites: ['pre-recon'],
+  //   promptTemplate: 'recon',
+  //   deliverableFilename: 'recon_deliverable.md',
+  // },
+  // 'injection-vuln': {
+  //   name: 'injection-vuln',
+  //   displayName: 'Injection vuln agent',
+  //   prerequisites: ['recon'],
+  //   promptTemplate: 'vuln-injection',
+  //   deliverableFilename: 'injection_analysis_deliverable.md',
+  // },
+  // 'xss-vuln': {
+  //   name: 'xss-vuln',
+  //   displayName: 'XSS vuln agent',
+  //   prerequisites: ['recon'],
+  //   promptTemplate: 'vuln-xss',
+  //   deliverableFilename: 'xss_analysis_deliverable.md',
+  // },
+  // 'auth-vuln': {
+  //   name: 'auth-vuln',
+  //   displayName: 'Auth vuln agent',
+  //   prerequisites: ['recon'],
+  //   promptTemplate: 'vuln-auth',
+  //   deliverableFilename: 'auth_analysis_deliverable.md',
+  // },
+  // 'ssrf-vuln': {
+  //   name: 'ssrf-vuln',
+  //   displayName: 'SSRF vuln agent',
+  //   prerequisites: ['recon'],
+  //   promptTemplate: 'vuln-ssrf',
+  //   deliverableFilename: 'ssrf_analysis_deliverable.md',
+  // },
+  // 'authz-vuln': {
+  //   name: 'authz-vuln',
+  //   displayName: 'Authz vuln agent',
+  //   prerequisites: ['recon'],
+  //   promptTemplate: 'vuln-authz',
+  //   deliverableFilename: 'authz_analysis_deliverable.md',
+  // },
+  // 'injection-exploit': {
+  //   name: 'injection-exploit',
+  //   displayName: 'Injection exploit agent',
+  //   prerequisites: ['injection-vuln'],
+  //   promptTemplate: 'exploit-injection',
+  //   deliverableFilename: 'injection_exploitation_evidence.md',
+  // },
+  // 'xss-exploit': {
+  //   name: 'xss-exploit',
+  //   displayName: 'XSS exploit agent',
+  //   prerequisites: ['xss-vuln'],
+  //   promptTemplate: 'exploit-xss',
+  //   deliverableFilename: 'xss_exploitation_evidence.md',
+  // },
+  // 'auth-exploit': {
+  //   name: 'auth-exploit',
+  //   displayName: 'Auth exploit agent',
+  //   prerequisites: ['auth-vuln'],
+  //   promptTemplate: 'exploit-auth',
+  //   deliverableFilename: 'auth_exploitation_evidence.md',
+  // },
+  // 'ssrf-exploit': {
+  //   name: 'ssrf-exploit',
+  //   displayName: 'SSRF exploit agent',
+  //   prerequisites: ['ssrf-vuln'],
+  //   promptTemplate: 'exploit-ssrf',
+  //   deliverableFilename: 'ssrf_exploitation_evidence.md',
+  // },
+  // 'authz-exploit': {
+  //   name: 'authz-exploit',
+  //   displayName: 'Authz exploit agent',
+  //   prerequisites: ['authz-vuln'],
+  //   promptTemplate: 'exploit-authz',
+  //   deliverableFilename: 'authz_exploitation_evidence.md',
+  // },
+  // 'report': {
+  //   name: 'report',
+  //   displayName: 'Report agent',
+  //   prerequisites: ['injection-exploit', 'xss-exploit', 'auth-exploit', 'ssrf-exploit', 'authz-exploit'],
+  //   promptTemplate: 'report-executive',
+  //   deliverableFilename: 'comprehensive_security_assessment_report.md',
+  //   modelTier: 'small',
+  // },
   'discovery': {
     name: 'discovery',
     displayName: 'Gray-box Discovery Agent',
@@ -201,26 +207,223 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     deliverableFilename: 'comprehensive_security_assessment_report.md',
     modelTier: 'small',
   },
+
+  // === Mobile Graybox Agents ===
+  'mobile-discovery': {
+    name: 'mobile-discovery',
+    displayName: 'Mobile Discovery Agent',
+    prerequisites: [],
+    promptTemplate: 'mobile/discovery',
+    deliverableFilename: 'mobile_discovery.md',
+    modelTier: 'large',
+  },
+  'mobile-auth-mapper': {
+    name: 'mobile-auth-mapper',
+    displayName: 'Mobile Auth Mapper Agent',
+    prerequisites: ['mobile-discovery'],
+    promptTemplate: 'mobile/auth-mapper',
+    deliverableFilename: 'mobile_auth_map.md',
+  },
+  'mobile-injection-vuln': {
+    name: 'mobile-injection-vuln',
+    displayName: 'Mobile Injection Vuln Agent',
+    prerequisites: ['mobile-auth-mapper'],
+    promptTemplate: 'mobile/vuln-injection',
+    deliverableFilename: 'injection_analysis_deliverable.md',
+  },
+  'mobile-xss-vuln': {
+    name: 'mobile-xss-vuln',
+    displayName: 'Mobile XSS Vuln Agent',
+    prerequisites: ['mobile-auth-mapper'],
+    promptTemplate: 'mobile/vuln-xss',
+    deliverableFilename: 'xss_analysis_deliverable.md',
+  },
+  'mobile-auth-vuln': {
+    name: 'mobile-auth-vuln',
+    displayName: 'Mobile Auth Vuln Agent',
+    prerequisites: ['mobile-auth-mapper'],
+    promptTemplate: 'mobile/vuln-auth',
+    deliverableFilename: 'auth_analysis_deliverable.md',
+  },
+  'mobile-ssrf-vuln': {
+    name: 'mobile-ssrf-vuln',
+    displayName: 'Mobile SSRF Vuln Agent',
+    prerequisites: ['mobile-auth-mapper'],
+    promptTemplate: 'mobile/vuln-ssrf',
+    deliverableFilename: 'ssrf_analysis_deliverable.md',
+  },
+  'mobile-authz-vuln': {
+    name: 'mobile-authz-vuln',
+    displayName: 'Mobile Authz Vuln Agent',
+    prerequisites: ['mobile-auth-mapper'],
+    promptTemplate: 'mobile/vuln-authz',
+    deliverableFilename: 'authz_analysis_deliverable.md',
+  },
+  'mobile-injection-exploit': {
+    name: 'mobile-injection-exploit',
+    displayName: 'Mobile Injection Exploit Agent',
+    prerequisites: ['mobile-injection-vuln'],
+    promptTemplate: 'mobile/exploit-injection',
+    deliverableFilename: 'injection_exploitation_evidence.md',
+  },
+  'mobile-xss-exploit': {
+    name: 'mobile-xss-exploit',
+    displayName: 'Mobile XSS Exploit Agent',
+    prerequisites: ['mobile-xss-vuln'],
+    promptTemplate: 'mobile/exploit-xss',
+    deliverableFilename: 'xss_exploitation_evidence.md',
+  },
+  'mobile-auth-exploit': {
+    name: 'mobile-auth-exploit',
+    displayName: 'Mobile Auth Exploit Agent',
+    prerequisites: ['mobile-auth-vuln'],
+    promptTemplate: 'mobile/exploit-auth',
+    deliverableFilename: 'auth_exploitation_evidence.md',
+  },
+  'mobile-ssrf-exploit': {
+    name: 'mobile-ssrf-exploit',
+    displayName: 'Mobile SSRF Exploit Agent',
+    prerequisites: ['mobile-ssrf-vuln'],
+    promptTemplate: 'mobile/exploit-ssrf',
+    deliverableFilename: 'ssrf_exploitation_evidence.md',
+  },
+  'mobile-authz-exploit': {
+    name: 'mobile-authz-exploit',
+    displayName: 'Mobile Authz Exploit Agent',
+    prerequisites: ['mobile-authz-vuln'],
+    promptTemplate: 'mobile/exploit-authz',
+    deliverableFilename: 'authz_exploitation_evidence.md',
+  },
+  'mobile-report': {
+    name: 'mobile-report',
+    displayName: 'Mobile Report Agent',
+    prerequisites: [
+      'mobile-injection-exploit', 'mobile-xss-exploit', 'mobile-auth-exploit',
+      'mobile-ssrf-exploit', 'mobile-authz-exploit',
+    ],
+    promptTemplate: 'mobile/report',
+    deliverableFilename: 'comprehensive_security_assessment_report.md',
+    modelTier: 'small',
+  },
+
+  // === API Graybox Agents ===
+  'api-discovery': {
+    name: 'api-discovery',
+    displayName: 'API Discovery Agent',
+    prerequisites: [],
+    promptTemplate: 'api/discovery',
+    deliverableFilename: 'api_discovery.md',
+    modelTier: 'large',
+  },
+  'api-auth-mapper': {
+    name: 'api-auth-mapper',
+    displayName: 'API Auth Mapper Agent',
+    prerequisites: ['api-discovery'],
+    promptTemplate: 'api/auth-mapper',
+    deliverableFilename: 'api_auth_map.md',
+  },
+  'api-injection-vuln': {
+    name: 'api-injection-vuln',
+    displayName: 'API Injection Vuln Agent',
+    prerequisites: ['api-auth-mapper'],
+    promptTemplate: 'api/vuln-injection',
+    deliverableFilename: 'injection_analysis_deliverable.md',
+  },
+  'api-xss-vuln': {
+    name: 'api-xss-vuln',
+    displayName: 'API Response Injection Vuln Agent',
+    prerequisites: ['api-auth-mapper'],
+    promptTemplate: 'api/vuln-xss',
+    deliverableFilename: 'xss_analysis_deliverable.md',
+  },
+  'api-auth-vuln': {
+    name: 'api-auth-vuln',
+    displayName: 'API Auth Vuln Agent',
+    prerequisites: ['api-auth-mapper'],
+    promptTemplate: 'api/vuln-auth',
+    deliverableFilename: 'auth_analysis_deliverable.md',
+  },
+  'api-ssrf-vuln': {
+    name: 'api-ssrf-vuln',
+    displayName: 'API SSRF Vuln Agent',
+    prerequisites: ['api-auth-mapper'],
+    promptTemplate: 'api/vuln-ssrf',
+    deliverableFilename: 'ssrf_analysis_deliverable.md',
+  },
+  'api-authz-vuln': {
+    name: 'api-authz-vuln',
+    displayName: 'API Authz Vuln Agent',
+    prerequisites: ['api-auth-mapper'],
+    promptTemplate: 'api/vuln-authz',
+    deliverableFilename: 'authz_analysis_deliverable.md',
+  },
+  'api-injection-exploit': {
+    name: 'api-injection-exploit',
+    displayName: 'API Injection Exploit Agent',
+    prerequisites: ['api-injection-vuln'],
+    promptTemplate: 'api/exploit-injection',
+    deliverableFilename: 'injection_exploitation_evidence.md',
+  },
+  'api-xss-exploit': {
+    name: 'api-xss-exploit',
+    displayName: 'API Response Injection Exploit Agent',
+    prerequisites: ['api-xss-vuln'],
+    promptTemplate: 'api/exploit-xss',
+    deliverableFilename: 'xss_exploitation_evidence.md',
+  },
+  'api-auth-exploit': {
+    name: 'api-auth-exploit',
+    displayName: 'API Auth Exploit Agent',
+    prerequisites: ['api-auth-vuln'],
+    promptTemplate: 'api/exploit-auth',
+    deliverableFilename: 'auth_exploitation_evidence.md',
+  },
+  'api-ssrf-exploit': {
+    name: 'api-ssrf-exploit',
+    displayName: 'API SSRF Exploit Agent',
+    prerequisites: ['api-ssrf-vuln'],
+    promptTemplate: 'api/exploit-ssrf',
+    deliverableFilename: 'ssrf_exploitation_evidence.md',
+  },
+  'api-authz-exploit': {
+    name: 'api-authz-exploit',
+    displayName: 'API Authz Exploit Agent',
+    prerequisites: ['api-authz-vuln'],
+    promptTemplate: 'api/exploit-authz',
+    deliverableFilename: 'authz_exploitation_evidence.md',
+  },
+  'api-report': {
+    name: 'api-report',
+    displayName: 'API Report Agent',
+    prerequisites: [
+      'api-injection-exploit', 'api-xss-exploit', 'api-auth-exploit',
+      'api-ssrf-exploit', 'api-authz-exploit',
+    ],
+    promptTemplate: 'api/report',
+    deliverableFilename: 'comprehensive_security_assessment_report.md',
+    modelTier: 'small',
+  },
 });
 
 // Phase names for metrics aggregation
 export type PhaseName = 'pre-recon' | 'recon' | 'discovery' | 'auth-mapping' | 'vulnerability-analysis' | 'exploitation' | 'reporting';
 
 // Map agents to their corresponding phases (single source of truth)
+// DISABLED: whitebox runtime deprecated. See AGENTS record above for details.
 export const AGENT_PHASE_MAP: Readonly<Record<AgentName, PhaseName>> = Object.freeze({
-  'pre-recon': 'pre-recon',
-  'recon': 'recon',
-  'injection-vuln': 'vulnerability-analysis',
-  'xss-vuln': 'vulnerability-analysis',
-  'auth-vuln': 'vulnerability-analysis',
-  'authz-vuln': 'vulnerability-analysis',
-  'ssrf-vuln': 'vulnerability-analysis',
-  'injection-exploit': 'exploitation',
-  'xss-exploit': 'exploitation',
-  'auth-exploit': 'exploitation',
-  'authz-exploit': 'exploitation',
-  'ssrf-exploit': 'exploitation',
-  'report': 'reporting',
+  // 'pre-recon': 'pre-recon',
+  // 'recon': 'recon',
+  // 'injection-vuln': 'vulnerability-analysis',
+  // 'xss-vuln': 'vulnerability-analysis',
+  // 'auth-vuln': 'vulnerability-analysis',
+  // 'authz-vuln': 'vulnerability-analysis',
+  // 'ssrf-vuln': 'vulnerability-analysis',
+  // 'injection-exploit': 'exploitation',
+  // 'xss-exploit': 'exploitation',
+  // 'auth-exploit': 'exploitation',
+  // 'authz-exploit': 'exploitation',
+  // 'ssrf-exploit': 'exploitation',
+  // 'report': 'reporting',
   'discovery': 'discovery',
   'auth-mapper': 'auth-mapping',
   'graybox-injection-vuln': 'vulnerability-analysis',
@@ -234,6 +437,36 @@ export const AGENT_PHASE_MAP: Readonly<Record<AgentName, PhaseName>> = Object.fr
   'graybox-ssrf-exploit': 'exploitation',
   'graybox-authz-exploit': 'exploitation',
   'graybox-report': 'reporting',
+
+  // Mobile graybox agents
+  'mobile-discovery': 'discovery',
+  'mobile-auth-mapper': 'auth-mapping',
+  'mobile-injection-vuln': 'vulnerability-analysis',
+  'mobile-xss-vuln': 'vulnerability-analysis',
+  'mobile-auth-vuln': 'vulnerability-analysis',
+  'mobile-ssrf-vuln': 'vulnerability-analysis',
+  'mobile-authz-vuln': 'vulnerability-analysis',
+  'mobile-injection-exploit': 'exploitation',
+  'mobile-xss-exploit': 'exploitation',
+  'mobile-auth-exploit': 'exploitation',
+  'mobile-ssrf-exploit': 'exploitation',
+  'mobile-authz-exploit': 'exploitation',
+  'mobile-report': 'reporting',
+
+  // API graybox agents
+  'api-discovery': 'discovery',
+  'api-auth-mapper': 'auth-mapping',
+  'api-injection-vuln': 'vulnerability-analysis',
+  'api-xss-vuln': 'vulnerability-analysis',
+  'api-auth-vuln': 'vulnerability-analysis',
+  'api-ssrf-vuln': 'vulnerability-analysis',
+  'api-authz-vuln': 'vulnerability-analysis',
+  'api-injection-exploit': 'exploitation',
+  'api-xss-exploit': 'exploitation',
+  'api-auth-exploit': 'exploitation',
+  'api-ssrf-exploit': 'exploitation',
+  'api-authz-exploit': 'exploitation',
+  'api-report': 'reporting',
 });
 
 // Factory function for vulnerability queue validators
@@ -260,33 +493,32 @@ function createExploitValidator(vulnType: VulnType): AgentValidator {
 
 // MCP agent mapping - assigns each agent to a specific Playwright instance to prevent conflicts
 // Keys are promptTemplate values from AGENTS registry
-export const MCP_AGENT_MAPPING: Record<string, PlaywrightAgent> = Object.freeze({
-  // Phase 1: Pre-reconnaissance (actual prompt name is 'pre-recon-code')
-  // NOTE: Pre-recon is pure code analysis and doesn't use browser automation,
-  // but assigning MCP server anyway for consistency and future extensibility
-  'pre-recon-code': 'playwright-agent1',
-
-  // Phase 2: Reconnaissance (actual prompt name is 'recon')
-  recon: 'playwright-agent2',
-
-  // Phase 3: Vulnerability Analysis (5 parallel agents)
-  'vuln-injection': 'playwright-agent1',
-  'vuln-xss': 'playwright-agent2',
-  'vuln-auth': 'playwright-agent3',
-  'vuln-ssrf': 'playwright-agent4',
-  'vuln-authz': 'playwright-agent5',
-
-  // Phase 4: Exploitation (5 parallel agents - same as vuln counterparts)
-  'exploit-injection': 'playwright-agent1',
-  'exploit-xss': 'playwright-agent2',
-  'exploit-auth': 'playwright-agent3',
-  'exploit-ssrf': 'playwright-agent4',
-  'exploit-authz': 'playwright-agent5',
-
-  // Phase 5: Reporting (actual prompt name is 'report-executive')
-  // NOTE: Report generation is typically text-based and doesn't use browser automation,
-  // but assigning MCP server anyway for potential screenshot inclusion or future needs
-  'report-executive': 'playwright-agent3',
+// DISABLED: whitebox runtime deprecated. See AGENTS record above for details.
+export const MCP_AGENT_MAPPING: Record<string, PlaywrightAgent | AppiumAgent | ApiAgent> = Object.freeze({
+  // // Phase 1: Pre-reconnaissance (actual prompt name is 'pre-recon-code')
+  // // NOTE: Pre-recon is pure code analysis and doesn't use browser automation,
+  // // but assigning MCP server anyway for consistency and future extensibility
+  // 'pre-recon-code': 'playwright-agent1',
+  //
+  // // Phase 2: Reconnaissance (actual prompt name is 'recon')
+  // recon: 'playwright-agent2',
+  //
+  // // Phase 3: Vulnerability Analysis (5 parallel agents)
+  // 'vuln-injection': 'playwright-agent1',
+  // 'vuln-xss': 'playwright-agent2',
+  // 'vuln-auth': 'playwright-agent3',
+  // 'vuln-ssrf': 'playwright-agent4',
+  // 'vuln-authz': 'playwright-agent5',
+  //
+  // // Phase 4: Exploitation (5 parallel agents - same as vuln counterparts)
+  // 'exploit-injection': 'playwright-agent1',
+  // 'exploit-xss': 'playwright-agent2',
+  // 'exploit-auth': 'playwright-agent3',
+  // 'exploit-ssrf': 'playwright-agent4',
+  // 'exploit-authz': 'playwright-agent5',
+  //
+  // // Phase 5: Reporting (actual prompt name is 'report-executive')
+  // 'report-executive': 'playwright-agent3',
 
   // Gray-box discovery and auth mapping
   'graybox/discovery': 'playwright-agent1',
@@ -308,52 +540,86 @@ export const MCP_AGENT_MAPPING: Record<string, PlaywrightAgent> = Object.freeze(
 
   // Gray-box reporting
   'graybox/report': 'playwright-agent1',
+
+  // Mobile discovery and auth mapping
+  'mobile/discovery': 'appium-agent1',
+  'mobile/auth-mapper': 'appium-agent2',
+
+  // Mobile vulnerability analysis (5 parallel agents)
+  'mobile/vuln-injection': 'appium-agent1',
+  'mobile/vuln-xss': 'appium-agent2',
+  'mobile/vuln-auth': 'appium-agent3',
+  'mobile/vuln-ssrf': 'appium-agent4',
+  'mobile/vuln-authz': 'appium-agent5',
+
+  // Mobile exploitation (5 parallel agents — same slots as vuln counterparts)
+  'mobile/exploit-injection': 'appium-agent1',
+  'mobile/exploit-xss': 'appium-agent2',
+  'mobile/exploit-auth': 'appium-agent3',
+  'mobile/exploit-ssrf': 'appium-agent4',
+  'mobile/exploit-authz': 'appium-agent5',
+
+  // Mobile reporting
+  'mobile/report': 'appium-agent1',
+
+  // API agents — no browser/device automation, only Bash+curl + shannon-helper
+  'api/discovery': 'api-only',
+  'api/auth-mapper': 'api-only',
+  'api/vuln-injection': 'api-only',
+  'api/vuln-xss': 'api-only',
+  'api/vuln-auth': 'api-only',
+  'api/vuln-ssrf': 'api-only',
+  'api/vuln-authz': 'api-only',
+  'api/exploit-injection': 'api-only',
+  'api/exploit-xss': 'api-only',
+  'api/exploit-auth': 'api-only',
+  'api/exploit-ssrf': 'api-only',
+  'api/exploit-authz': 'api-only',
+  'api/report': 'api-only',
 });
 
 // Direct agent-to-validator mapping - much simpler than pattern matching
+// DISABLED: whitebox runtime deprecated. See AGENTS record above for details.
 export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze({
-  // Pre-reconnaissance agent - validates the code analysis deliverable created by the agent
-  'pre-recon': async (sourceDir: string): Promise<boolean> => {
-    const codeAnalysisFile = path.join(sourceDir, 'deliverables', 'code_analysis_deliverable.md');
-    return await fs.pathExists(codeAnalysisFile);
-  },
-
-  // Reconnaissance agent
-  recon: async (sourceDir: string): Promise<boolean> => {
-    const reconFile = path.join(sourceDir, 'deliverables', 'recon_deliverable.md');
-    return await fs.pathExists(reconFile);
-  },
-
-  // Vulnerability analysis agents
-  'injection-vuln': createVulnValidator('injection'),
-  'xss-vuln': createVulnValidator('xss'),
-  'auth-vuln': createVulnValidator('auth'),
-  'ssrf-vuln': createVulnValidator('ssrf'),
-  'authz-vuln': createVulnValidator('authz'),
-
-  // Exploitation agents
-  'injection-exploit': createExploitValidator('injection'),
-  'xss-exploit': createExploitValidator('xss'),
-  'auth-exploit': createExploitValidator('auth'),
-  'ssrf-exploit': createExploitValidator('ssrf'),
-  'authz-exploit': createExploitValidator('authz'),
-
-  // Executive report agent
-  report: async (sourceDir: string, logger: ActivityLogger): Promise<boolean> => {
-    const reportFile = path.join(
-      sourceDir,
-      'deliverables',
-      'comprehensive_security_assessment_report.md'
-    );
-
-    const reportExists = await fs.pathExists(reportFile);
-
-    if (!reportExists) {
-      logger.error('Missing required deliverable: comprehensive_security_assessment_report.md');
-    }
-
-    return reportExists;
-  },
+  // // Pre-reconnaissance agent - validates the code analysis deliverable created by the agent
+  // 'pre-recon': async (sourceDir: string): Promise<boolean> => {
+  //   const codeAnalysisFile = path.join(sourceDir, 'deliverables', 'code_analysis_deliverable.md');
+  //   return await fs.pathExists(codeAnalysisFile);
+  // },
+  //
+  // // Reconnaissance agent
+  // recon: async (sourceDir: string): Promise<boolean> => {
+  //   const reconFile = path.join(sourceDir, 'deliverables', 'recon_deliverable.md');
+  //   return await fs.pathExists(reconFile);
+  // },
+  //
+  // // Vulnerability analysis agents
+  // 'injection-vuln': createVulnValidator('injection'),
+  // 'xss-vuln': createVulnValidator('xss'),
+  // 'auth-vuln': createVulnValidator('auth'),
+  // 'ssrf-vuln': createVulnValidator('ssrf'),
+  // 'authz-vuln': createVulnValidator('authz'),
+  //
+  // // Exploitation agents
+  // 'injection-exploit': createExploitValidator('injection'),
+  // 'xss-exploit': createExploitValidator('xss'),
+  // 'auth-exploit': createExploitValidator('auth'),
+  // 'ssrf-exploit': createExploitValidator('ssrf'),
+  // 'authz-exploit': createExploitValidator('authz'),
+  //
+  // // Executive report agent
+  // report: async (sourceDir: string, logger: ActivityLogger): Promise<boolean> => {
+  //   const reportFile = path.join(
+  //     sourceDir,
+  //     'deliverables',
+  //     'comprehensive_security_assessment_report.md'
+  //   );
+  //   const reportExists = await fs.pathExists(reportFile);
+  //   if (!reportExists) {
+  //     logger.error('Missing required deliverable: comprehensive_security_assessment_report.md');
+  //   }
+  //   return reportExists;
+  // },
 
   // Gray-box discovery and auth mapping
   'discovery': async (sourceDir: string): Promise<boolean> => {
@@ -381,6 +647,82 @@ export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze
 
   // Gray-box report
   'graybox-report': async (sourceDir: string, logger: ActivityLogger): Promise<boolean> => {
+    const reportFile = path.join(
+      sourceDir,
+      'deliverables',
+      'comprehensive_security_assessment_report.md'
+    );
+    const reportExists = await fs.pathExists(reportFile);
+    if (!reportExists) {
+      logger.error('Missing required deliverable: comprehensive_security_assessment_report.md');
+    }
+    return reportExists;
+  },
+
+  // Mobile discovery and auth mapping
+  'mobile-discovery': async (sourceDir: string): Promise<boolean> => {
+    const file = path.join(sourceDir, 'deliverables', 'mobile_discovery.md');
+    return await fs.pathExists(file);
+  },
+  'mobile-auth-mapper': async (sourceDir: string): Promise<boolean> => {
+    const file = path.join(sourceDir, 'deliverables', 'mobile_auth_map.md');
+    return await fs.pathExists(file);
+  },
+
+  // Mobile vulnerability analysis agents
+  'mobile-injection-vuln': createVulnValidator('injection'),
+  'mobile-xss-vuln': createVulnValidator('xss'),
+  'mobile-auth-vuln': createVulnValidator('auth'),
+  'mobile-ssrf-vuln': createVulnValidator('ssrf'),
+  'mobile-authz-vuln': createVulnValidator('authz'),
+
+  // Mobile exploitation agents
+  'mobile-injection-exploit': createExploitValidator('injection'),
+  'mobile-xss-exploit': createExploitValidator('xss'),
+  'mobile-auth-exploit': createExploitValidator('auth'),
+  'mobile-ssrf-exploit': createExploitValidator('ssrf'),
+  'mobile-authz-exploit': createExploitValidator('authz'),
+
+  // Mobile report
+  'mobile-report': async (sourceDir: string, logger: ActivityLogger): Promise<boolean> => {
+    const reportFile = path.join(
+      sourceDir,
+      'deliverables',
+      'comprehensive_security_assessment_report.md'
+    );
+    const reportExists = await fs.pathExists(reportFile);
+    if (!reportExists) {
+      logger.error('Missing required deliverable: comprehensive_security_assessment_report.md');
+    }
+    return reportExists;
+  },
+
+  // API discovery and auth mapping
+  'api-discovery': async (sourceDir: string): Promise<boolean> => {
+    const file = path.join(sourceDir, 'deliverables', 'api_discovery.md');
+    return await fs.pathExists(file);
+  },
+  'api-auth-mapper': async (sourceDir: string): Promise<boolean> => {
+    const file = path.join(sourceDir, 'deliverables', 'api_auth_map.md');
+    return await fs.pathExists(file);
+  },
+
+  // API vulnerability analysis agents
+  'api-injection-vuln': createVulnValidator('injection'),
+  'api-xss-vuln': createVulnValidator('xss'),
+  'api-auth-vuln': createVulnValidator('auth'),
+  'api-ssrf-vuln': createVulnValidator('ssrf'),
+  'api-authz-vuln': createVulnValidator('authz'),
+
+  // API exploitation agents
+  'api-injection-exploit': createExploitValidator('injection'),
+  'api-xss-exploit': createExploitValidator('xss'),
+  'api-auth-exploit': createExploitValidator('auth'),
+  'api-ssrf-exploit': createExploitValidator('ssrf'),
+  'api-authz-exploit': createExploitValidator('authz'),
+
+  // API report
+  'api-report': async (sourceDir: string, logger: ActivityLogger): Promise<boolean> => {
     const reportFile = path.join(
       sourceDir,
       'deliverables',

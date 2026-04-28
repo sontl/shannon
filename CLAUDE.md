@@ -10,9 +10,14 @@ AI-powered penetration testing agent for defensive security analysis. Automates 
 # Setup
 cp .env.example .env && edit .env  # Set ANTHROPIC_API_KEY
 
-# Prepare repo (REPO is a folder name inside ./repos/, not an absolute path)
-git clone https://github.com/org/repo.git ./repos/my-repo
-# or symlink: ln -s /path/to/existing/repo ./repos/my-repo
+# Prepare input docs (REPO is a folder name inside ./repos/, not an absolute path).
+# For graybox/DAST runs, this folder holds read-only project documentation — NOT source code.
+# Required layout:
+#   ./repos/my-repo/docs/       — project overview, architecture, user flows (REQUIRED, ≥1 file)
+#   ./repos/my-repo/schemas/    — OpenAPI / GraphQL specs (optional)
+#   ./repos/my-repo/api/        — endpoint documentation (optional)
+#   ./repos/my-repo/auth/       — role matrix / permission model (optional)
+mkdir -p ./repos/my-repo/docs && cp <your-docs>/*.md ./repos/my-repo/docs/
 
 # Run
 ./shannon start URL=<url> REPO=my-repo
@@ -58,32 +63,30 @@ Durable workflow orchestration with crash recovery, queryable progress, intellig
 - `src/temporal/worker.ts` — Worker entry point
 - `src/temporal/client.ts` — CLI client for starting workflows
 - `src/temporal/shared.ts` — Types, interfaces, query definitions
-### Whitebox Pipeline (default)
+### Input Docs Folder (`./repos/<name>/`)
 
-1. **Pre-Recon** (`pre-recon`) — External scans (nmap, subfinder, whatweb) + source code analysis
-2. **Recon** (`recon`) — Attack surface mapping from initial findings
-3. **Vulnerability Analysis** (5 parallel agents) — injection, xss, auth, authz, ssrf
-4. **Exploitation** (5 parallel agents, conditional) — Exploits confirmed vulnerabilities
-5. **Reporting** (`report`) — Executive-level security report
+Shannon treats `./repos/<name>/` as **read-only project documentation** — not source code. It is the agent's grounding material: overview, architecture, user flows, API specs, role matrix.
 
-### Graybox Pipeline (`pipeline.mode: graybox` in config)
+Preflight (`src/services/preflight.ts`) fails fast if `./repos/<name>/docs/` is missing or empty. Optional subfolders (`schemas/`, `api/`, `auth/`) are not required but surfaced to agents when present. The `_project-docs.txt` shared partial (`prompts/shared/_project-docs.txt`) instructs agents to explore `{{REPO_PATH}}/` with Bash/Read and warns them not to write there.
 
-No source code access. Uses dynamic browser-based discovery and behavioral analysis (DAST). Mirrors the whitebox pipeline structure with parallel vuln/exploit pairs.
+### Pipelines
 
-1. **Discovery** (`discovery`) — Spiders the app, analyzes JS bundles, fuzzes common paths, ingests any provided API schemas (OpenAPI/GraphQL). Produces `graybox_discovery.md`
-2. **Auth Mapping** (`auth-mapper`) — Authenticates, builds unauthenticated vs. authenticated access matrix, probes for IDOR and vertical privilege escalation. Produces `graybox_auth_map.md`
-3. **Vulnerability Analysis** (5 parallel agents) — graybox-injection-vuln, graybox-xss-vuln, graybox-auth-vuln, graybox-ssrf-vuln, graybox-authz-vuln. DAST behavioral testing per vulnerability class. Each produces analysis deliverable MD + exploitation queue JSON
-4. **Exploitation** (5 parallel agents, conditional) — graybox-injection-exploit, graybox-xss-exploit, graybox-auth-exploit, graybox-ssrf-exploit, graybox-authz-exploit. Dynamic exploitation via Playwright + curl. Gated by `checkExploitationQueue` (same mechanism as whitebox)
-5. **Reporting** (`graybox-report`) — DAST-oriented executive report from exploitation evidence. Produces `comprehensive_security_assessment_report.md`
+**Graybox Pipelines (default for all runs)** — No source code access. Dynamic DAST via browser/mobile/API probing.
 
-Agent sets: `WHITEBOX_AGENTS` (13) and `GRAYBOX_AGENTS` (14) in `src/types/agents.ts` — used by the resume short-circuit to avoid comparing against `ALL_AGENTS.length` in the wrong mode. Both pipelines share the exploitation queue mechanism (`queue-validation.ts`, `exploitation-checker.ts`) — graybox agents write the same queue files as whitebox.
+- **Web graybox** (agent prefix: none / `graybox-*`): discovery → auth-mapper → vuln×5 → exploit×5 → graybox-report. Prompts under `prompts/graybox/`.
+- **Mobile graybox** (agent prefix: `mobile-*`): mobile-discovery → mobile-auth-mapper → vuln×5 → exploit×5 → mobile-report. Prompts under `prompts/mobile/`.
+- **API graybox** (agent prefix: `api-*`): api-discovery → api-auth-mapper → vuln×5 → exploit×5 → api-report. Prompts under `prompts/api/`.
+
+Each tier: 2 discovery phases, 5 parallel vuln analysis agents, 5 parallel exploit agents (conditional on non-empty exploitation queue), and a report agent. Agent sets live in `src/types/agents.ts` as `GRAYBOX_AGENTS`, `MOBILE_GRAYBOX_AGENTS`, `API_GRAYBOX_AGENTS`.
+
+**Whitebox (reference only)** — The original Shannon whitebox prompts (`prompts/pre-recon-code.txt`, `recon.txt`, `vuln-*.txt`, `exploit-*.txt`, `report-executive.txt`) and `WHITEBOX_AGENTS` agent set remain in the tree as the **gold-standard template** for prompt structure and rigor. They should be used as a reference when enriching graybox/mobile/api prompts with methodology, proof-obligation, false-positive, and evidence-quality sections. Runtime invocation of whitebox is being phased out.
 
 ### Supporting Systems
 - **Configuration** — YAML configs in `configs/` with JSON Schema validation (`config-schema.json`). Supports auth settings, MFA/TOTP, and per-app testing parameters
 - **Prompts** — Per-phase templates in `prompts/` with variable substitution (`{{TARGET_URL}}`, `{{CONFIG_CONTEXT}}`). Shared partials in `prompts/shared/` via `src/services/prompt-manager.ts`
 - **SDK Integration** — Uses `@anthropic-ai/claude-agent-sdk` with `maxTurns: 10_000` and `bypassPermissions` mode. Playwright MCP for browser automation, TOTP generation via MCP tool. Login flow template at `prompts/shared/login-instructions.txt` supports form, SSO, API, and basic auth
 - **Audit System** — Crash-safe append-only logging in `audit-logs/{hostname}_{sessionId}/`. Tracks session metrics, per-agent logs, prompts, and deliverables. WorkflowLogger (`audit/workflow-logger.ts`) provides unified human-readable per-workflow logs, backed by LogStream (`audit/log-stream.ts`) shared stream primitive
-- **Deliverables** — Saved to `deliverables/` in the target repo via the `save_deliverable` MCP tool
+- **Deliverables** — Currently saved to `deliverables/` under the target repo/workspace via the `save_deliverable` MCP tool. Planned move: `./audit-logs/<workspace>/deliverables/` so `./repos/<name>/` stays input-only (see follow-up work in `/Users/elinguyen/.claude/plans/mutable-cuddling-oasis.md`).
 - **Workspaces & Resume** — Named workspaces via `WORKSPACE=<name>` or auto-named from URL+timestamp. Resume passes `--workspace` to the Temporal client (`src/temporal/client.ts`), which loads `session.json` to detect completed agents. `loadResumeState()` in `src/temporal/activities.ts` validates deliverable existence, restores git checkpoints, and cleans up incomplete deliverables. Workspace listing via `src/temporal/workspaces.ts`
 
 ## Development Notes
@@ -162,7 +165,7 @@ Comments must be **timeless** — no references to this conversation, refactorin
 
 ## Troubleshooting
 
-- **"Repository not found"** — `REPO` must be a folder name inside `./repos/`, not an absolute path. Clone or symlink your repo there first: `ln -s /path/to/repo ./repos/my-repo`
+- **"Input path does not exist"** / **"Input docs folder missing or empty"** — `REPO` must be a folder name inside `./repos/`, not an absolute path. The folder must contain a non-empty `docs/` subfolder: `mkdir -p ./repos/my-repo/docs && cp <your-docs>/*.md ./repos/my-repo/docs/`.
 - **"Temporal not ready"** — Wait for health check or `docker compose logs temporal`
 - **Worker not processing** — Check `docker compose ps`
 - **Reset state** — `./shannon stop CLEAN=true`

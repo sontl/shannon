@@ -12,7 +12,8 @@
  * time and API costs compared to failing mid-pipeline.
  *
  * Checks run sequentially, cheapest first:
- * 1. Repository path exists and contains .git
+ * 1. Repository path exists and contains a non-empty `docs/` folder
+ *    (the repo is treated as read-only project documentation, not source code).
  * 2. Config file parses and validates (if provided)
  * 3. Credentials validate via Claude Agent SDK query (API key, OAuth, Bedrock, Vertex AI, or router mode)
  */
@@ -26,14 +27,65 @@ import { type Result, ok, err } from '../types/result.js';
 import { parseConfig } from '../config-parser.js';
 import { resolveModel } from '../ai/models.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
+import type { PipelineTarget } from '../types/config.js';
 
 // === Repository Validation ===
+
+/** Optional input subfolders the pipeline knows about. */
+export const OPTIONAL_DOC_SUBDIRS = ['schemas', 'api', 'auth'] as const;
+
+/** Result of scanning the input docs folder. */
+export interface DocsLayout {
+  hasDocs: boolean;
+  presentOptional: string[];
+  missingOptional: string[];
+}
+
+async function hasAtLeastOneEntry(dir: string): Promise<boolean> {
+  try {
+    const entries = await fs.readdir(dir);
+    return entries.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function isDirectory(p: string): Promise<boolean> {
+  try {
+    const s = await fs.stat(p);
+    return s.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Inspect `{repoPath}/docs/`, `{repoPath}/schemas/`, `{repoPath}/api/`,
+ * `{repoPath}/auth/` and return which optional subfolders exist.
+ * Exposed so callers can surface the layout to agents.
+ */
+export async function scanDocsLayout(repoPath: string): Promise<DocsLayout> {
+  const docsDir = `${repoPath}/docs`;
+  const hasDocs = (await isDirectory(docsDir)) && (await hasAtLeastOneEntry(docsDir));
+
+  const presentOptional: string[] = [];
+  const missingOptional: string[] = [];
+  for (const sub of OPTIONAL_DOC_SUBDIRS) {
+    if (await isDirectory(`${repoPath}/${sub}`)) {
+      presentOptional.push(sub);
+    } else {
+      missingOptional.push(sub);
+    }
+  }
+
+  return { hasDocs, presentOptional, missingOptional };
+}
 
 async function validateRepo(
   repoPath: string,
   logger: ActivityLogger
 ): Promise<Result<void, PentestError>> {
-  logger.info('Checking repository path...', { repoPath });
+  logger.info('Checking input docs path...', { repoPath });
 
   // 1. Check repo directory exists
   try {
@@ -41,7 +93,7 @@ async function validateRepo(
     if (!stats.isDirectory()) {
       return err(
         new PentestError(
-          `Repository path is not a directory: ${repoPath}`,
+          `Input path is not a directory: ${repoPath}`,
           'config',
           false,
           { repoPath },
@@ -52,7 +104,7 @@ async function validateRepo(
   } catch {
     return err(
       new PentestError(
-        `Repository path does not exist: ${repoPath}`,
+        `Input path does not exist: ${repoPath}`,
         'config',
         false,
         { repoPath },
@@ -61,33 +113,33 @@ async function validateRepo(
     );
   }
 
-  // 2. Check .git directory exists
-  try {
-    const gitStats = await fs.stat(`${repoPath}/.git`);
-    if (!gitStats.isDirectory()) {
-      return err(
-        new PentestError(
-          `Not a git repository (no .git directory): ${repoPath}`,
-          'config',
-          false,
-          { repoPath },
-          ErrorCode.REPO_NOT_FOUND
-        )
-      );
-    }
-  } catch {
+  // 2. Check docs/ exists and is non-empty (mandatory project documentation)
+  const layout = await scanDocsLayout(repoPath);
+  if (!layout.hasDocs) {
     return err(
       new PentestError(
-        `Not a git repository (no .git directory): ${repoPath}`,
+        `Input docs folder missing or empty: ${repoPath}/docs/. ` +
+        `The project docs folder must contain at least one file ` +
+        `(overview, architecture, user flows, or business logic).`,
         'config',
         false,
-        { repoPath },
+        { repoPath, expected: `${repoPath}/docs/` },
         ErrorCode.REPO_NOT_FOUND
       )
     );
   }
 
-  logger.info('Repository path OK');
+  // 3. Warn about optional subfolders that are missing (does not fail preflight)
+  if (layout.missingOptional.length > 0) {
+    logger.warn(
+      `Optional docs subfolders not found: ${layout.missingOptional.join(', ')}. ` +
+      `Testing will proceed without them.`
+    );
+  }
+  logger.info('Input docs OK', {
+    repoPath,
+    present: ['docs', ...layout.presentOptional],
+  });
   return ok(undefined);
 }
 
@@ -302,26 +354,95 @@ async function validateCredentials(
   }
 }
 
+// === Mobile Validation ===
+
+async function validateMobilePrerequisites(
+  configPath: string | undefined,
+  logger: ActivityLogger
+): Promise<Result<void, PentestError>> {
+  if (!configPath) {
+    return err(
+      new PentestError(
+        'Mobile target requires a config file with a "mobile" section',
+        'config',
+        false,
+        {},
+        ErrorCode.CONFIG_VALIDATION_FAILED
+      )
+    );
+  }
+
+  const config = await parseConfig(configPath);
+  if (!config.mobile) {
+    return err(
+      new PentestError(
+        'Mobile target requires a "mobile" section in the config file',
+        'config',
+        false,
+        {},
+        ErrorCode.CONFIG_VALIDATION_FAILED
+      )
+    );
+  }
+
+  // Validate APK/IPA file exists (only if app_path is specified in config)
+  if (config.mobile.app_path) {
+    try {
+      const stats = await fs.stat(config.mobile.app_path);
+      if (!stats.isFile()) {
+        return err(
+          new PentestError(
+            `mobile.app_path is not a file: ${config.mobile.app_path}`,
+            'config',
+            false,
+            { appPath: config.mobile.app_path },
+            ErrorCode.CONFIG_VALIDATION_FAILED
+          )
+        );
+      }
+    } catch {
+      return err(
+        new PentestError(
+          `Mobile app file not found: ${config.mobile.app_path}`,
+          'config',
+          false,
+          { appPath: config.mobile.app_path },
+          ErrorCode.CONFIG_VALIDATION_FAILED
+        )
+      );
+    }
+  }
+
+  logger.info('Mobile prerequisites OK', {
+    platform: config.mobile.platform,
+  });
+  return ok(undefined);
+}
+
 // === Preflight Orchestrator ===
 
 /**
  * Run all preflight checks sequentially (cheapest first).
  *
- * 1. Repository path exists and contains .git
+ * 1. Repository docs folder exists and contains non-empty `docs/` (skipped for mobile/api)
  * 2. Config file parses and validates (if configPath provided)
- * 3. Credentials validate (API key, OAuth, or router mode)
+ * 3. Mobile prerequisites (if target is mobile)
+ * 4. Credentials validate (API key, OAuth, or router mode)
  *
  * Returns on first failure.
  */
 export async function runPreflightChecks(
   repoPath: string,
   configPath: string | undefined,
-  logger: ActivityLogger
+  logger: ActivityLogger,
+  target: PipelineTarget = 'web'
 ): Promise<Result<void, PentestError>> {
-  // 1. Repository check (free — filesystem only)
-  const repoResult = await validateRepo(repoPath, logger);
-  if (!repoResult.ok) {
-    return repoResult;
+  // 1. Repository check (skipped for mobile/api — workspace is auto-created)
+  if (target !== 'mobile' && target !== 'api') {
+    const repoResult = await validateRepo(repoPath, logger);
+    if (!repoResult.ok) {
+      return repoResult;
+    }
   }
 
   // 2. Config check (free — filesystem + CPU)
@@ -332,7 +453,15 @@ export async function runPreflightChecks(
     }
   }
 
-  // 3. Credential check (cheap — 1 SDK round-trip)
+  // 3. Mobile prerequisites (if target is mobile)
+  if (target === 'mobile') {
+    const mobileResult = await validateMobilePrerequisites(configPath, logger);
+    if (!mobileResult.ok) {
+      return mobileResult;
+    }
+  }
+
+  // 4. Credential check (cheap — 1 SDK round-trip)
   const credResult = await validateCredentials(logger);
   if (!credResult.ok) {
     return credResult;

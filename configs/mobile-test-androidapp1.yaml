@@ -1,0 +1,53 @@
+pipeline:
+  mode: graybox
+  target: mobile
+  max_concurrent_pipelines: 3
+
+mobile:
+  platform: android
+  # app_path
+  device_id: emulator-5554
+  appium_url: http://host.docker.internal:4723
+  backend_api_url: http://host.docker.internal:8000
+  bundle_id: com.example.test_androidapp1
+
+context:
+  schemas:
+    - url: http://host.docker.internal:8000/openapi.json
+      type: openapi
+
+authentication:
+  login_type: form
+  login_url: http://host.docker.internal:8000/api/login
+  credentials:
+    username: alice
+    password: alice2026
+  login_flow:
+    - Launch the app and wait for the login screen
+    - Tap the username input field and type $username
+    - Tap the password input field and type $password
+    - Tap the "Đăng nhập" button
+  success_condition:
+    type: element_present
+    value: "Personal Notes"
+
+rules:
+  focus:
+    - description: "Test notes CRUD through mobile UI"
+      type: path
+      url_path: /api/notes
+    - description: "Test user profile through mobile UI"
+      type: path
+      url_path: /api/users
+    - description: "Decompile APK and scan AppConstants for hardcoded secrets"                                               
+    - description: "Analyze InsecureCryptoHelper for weak crypto (MD5/SHA1/DES/ECB)"                                         
+    - description: "Test exported NoteDetailActivity / NoteBroadcastReceiver / NoteContentProvider via am/content"           
+    - description: "Dump SharedPreferences via run-as and inspect for plaintext creds"                                       
+    - description: "Analyze HelpScreen WebView for JS interface and unsafe flags"                                            
+    - description: "adb logcat during full flow — grep for password/token/md5"                                               
+    - description: "Check AndroidManifest for debuggable/allowBackup/usesCleartextTraffic + permission list" 
+
+  avoid:
+    - description: "Do not destroy admin account"
+      type: path
+      url_path: /api/users/1

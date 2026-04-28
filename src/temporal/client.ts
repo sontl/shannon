@@ -11,11 +11,12 @@
  * Starts a workflow and optionally waits for completion with progress polling.
  *
  * Usage:
- *   npm run temporal:start -- <webUrl> <repoPath> [options]
+ *   npm run temporal:start -- <webUrl> --repo <path> [options]
  *   # or
- *   node dist/temporal/client.js <webUrl> <repoPath> [options]
+ *   node dist/temporal/client.js <webUrl> --repo <path> [options]
  *
  * Options:
+ *   --repo <path>         Documentation folder for the target (required, all modes)
  *   --config <path>       Configuration file path
  *   --output <path>       Output directory for audit logs
  *   --pipeline-testing    Use minimal prompts for fast testing
@@ -28,12 +29,14 @@
 
 import { Connection, Client, WorkflowNotFoundError, type WorkflowHandle } from '@temporalio/client';
 import dotenv from 'dotenv';
+import fs from 'fs/promises';
 import { displaySplashScreen } from '../splash-screen.js';
 import { sanitizeHostname } from '../audit/utils.js';
 import { readJson, fileExists } from '../utils/file-io.js';
 import path from 'path';
-import { parseConfig } from '../config-parser.js';
-import type { PipelineConfig } from '../types/config.js';
+import { parseConfig, distributeConfig } from '../config-parser.js';
+import type { PipelineConfig, MobileConfig } from '../types/config.js';
+import type { PersonaDescriptor } from './shared.js';
 // Import types only - these don't pull in workflow runtime code
 import type { PipelineInput, PipelineState, PipelineProgress } from './shared.js';
 
@@ -123,9 +126,10 @@ function showUsage(): void {
   console.log('Start a pentest pipeline workflow\n');
   console.log('Usage:');
   console.log(
-    '  node dist/temporal/client.js <webUrl> <repoPath> [options]\n'
+    '  node dist/temporal/client.js <webUrl> --repo <path> [options]\n'
   );
   console.log('Options:');
+  console.log('  --repo <path>         Documentation folder for target (required, all modes)');
   console.log('  --config <path>       Configuration file path');
   console.log('  --output <path>       Output directory for audit logs');
   console.log('  --pipeline-testing    Use minimal prompts for fast testing');
@@ -135,9 +139,9 @@ function showUsage(): void {
   );
   console.log('  --wait                Wait for workflow completion with progress polling\n');
   console.log('Examples:');
-  console.log('  node dist/temporal/client.js https://example.com /path/to/repo');
+  console.log('  node dist/temporal/client.js https://example.com --repo /repos/my-target');
   console.log(
-    '  node dist/temporal/client.js https://example.com /path/to/repo --config config.yaml\n'
+    '  node dist/temporal/client.js https://example.com --repo /repos/my-target --config config.yaml\n'
   );
 }
 
@@ -146,6 +150,7 @@ function showUsage(): void {
 interface CliArgs {
   webUrl: string;
   repoPath: string;
+  workspacePath?: string;
   configPath?: string;
   outputPath?: string;
   displayOutputPath?: string;
@@ -153,9 +158,14 @@ interface CliArgs {
   customWorkflowId?: string;
   waitForCompletion: boolean;
   resumeFromWorkspace?: string;
+  isMobileTarget?: boolean;
+  isApiTarget?: boolean;
+  app?: string;
+  device?: string;
+  apk?: string;
 }
 
-function parseCliArgs(argv: string[]): CliArgs {
+async function parseCliArgs(argv: string[]): Promise<CliArgs> {
   if (argv.includes('--help') || argv.includes('-h') || argv.length === 0) {
     showUsage();
     process.exit(0);
@@ -170,6 +180,9 @@ function parseCliArgs(argv: string[]): CliArgs {
   let customWorkflowId: string | undefined;
   let waitForCompletion = false;
   let resumeFromWorkspace: string | undefined;
+  let app: string | undefined;
+  let device: string | undefined;
+  let apk: string | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -177,6 +190,12 @@ function parseCliArgs(argv: string[]): CliArgs {
       const nextArg = argv[i + 1];
       if (nextArg && !nextArg.startsWith('-')) {
         configPath = nextArg;
+        i++;
+      }
+    } else if (arg === '--repo') {
+      const nextArg = argv[i + 1];
+      if (nextArg && !nextArg.startsWith('-')) {
+        repoPath = nextArg;
         i++;
       }
     } else if (arg === '--output') {
@@ -207,28 +226,61 @@ function parseCliArgs(argv: string[]): CliArgs {
       }
     } else if (arg === '--wait') {
       waitForCompletion = true;
+    } else if (arg === '--app') {
+      const nextArg = argv[i + 1];
+      if (nextArg && !nextArg.startsWith('-')) {
+        app = nextArg;
+        i++;
+      }
+    } else if (arg === '--device') {
+      const nextArg = argv[i + 1];
+      if (nextArg && !nextArg.startsWith('-')) {
+        device = nextArg;
+        i++;
+      }
+    } else if (arg === '--apk') {
+      const nextArg = argv[i + 1];
+      if (nextArg && !nextArg.startsWith('-')) {
+        apk = nextArg;
+        i++;
+      }
     } else if (arg && !arg.startsWith('-')) {
       if (!webUrl) {
         webUrl = arg;
-      } else if (!repoPath) {
-        repoPath = arg;
       }
     }
   }
 
-  if (!webUrl || !repoPath) {
-    console.log('Error: webUrl and repoPath are required');
+  const isMobileTarget = app != null || (configPath ? await detectMobileTarget(configPath) : false);
+  const isApiTarget = configPath ? await detectApiTarget(configPath) : false;
+
+  if (!repoPath) {
+    console.log('Error: --repo is required (documentation folder for the target)');
+    showUsage();
+    process.exit(1);
+  }
+
+  if (!isMobileTarget && !webUrl) {
+    console.log('Error: webUrl is required for web/api target mode');
     showUsage();
     process.exit(1);
   }
 
   return {
-    webUrl, repoPath, pipelineTestingMode, waitForCompletion,
+    webUrl: webUrl || '',
+    repoPath: repoPath || '',
+    pipelineTestingMode,
+    waitForCompletion,
+    ...(isMobileTarget && { isMobileTarget }),
+    ...(isApiTarget && { isApiTarget }),
     ...(configPath && { configPath }),
     ...(outputPath && { outputPath }),
     ...(displayOutputPath && { displayOutputPath }),
     ...(customWorkflowId && { customWorkflowId }),
     ...(resumeFromWorkspace && { resumeFromWorkspace }),
+    ...(app && { app }),
+    ...(device && { device }),
+    ...(apk && { apk }),
   };
 }
 
@@ -246,8 +298,10 @@ async function resolveWorkspace(
   args: CliArgs
 ): Promise<WorkspaceResolution> {
   if (!args.resumeFromWorkspace) {
-    const hostname = sanitizeHostname(args.webUrl);
-    const workflowId = args.customWorkflowId || `${hostname}_shannon-${Date.now()}`;
+    const prefix = args.isMobileTarget && args.app
+      ? args.app.replace(/[^a-zA-Z0-9-]/g, '-')
+      : sanitizeHostname(args.webUrl);
+    const workflowId = args.customWorkflowId || `${prefix}_shannon-${Date.now()}`;
     return {
       workflowId,
       sessionId: workflowId,
@@ -270,13 +324,15 @@ async function resolveWorkspace(
       console.log(`Terminated ${terminatedWorkflows.length} previous workflow(s)\n`);
     }
 
-    // 2. Validate URL matches the workspace
-    const session = await readJson<SessionJson>(sessionPath);
-    if (session.session.webUrl !== args.webUrl) {
-      console.error('ERROR: URL mismatch with workspace');
-      console.error(`  Workspace URL: ${session.session.webUrl}`);
-      console.error(`  Provided URL:  ${args.webUrl}`);
-      process.exit(1);
+    // 2. Validate target matches the workspace (skip for mobile — no URL to compare)
+    if (!args.isMobileTarget) {
+      const session = await readJson<SessionJson>(sessionPath);
+      if (session.session.webUrl !== args.webUrl) {
+        console.error('ERROR: URL mismatch with workspace');
+        console.error(`  Workspace URL: ${session.session.webUrl}`);
+        console.error(`  Provided URL:  ${args.webUrl}`);
+        process.exit(1);
+      }
     }
 
     // 3. Generate a new workflow ID scoped to this resume attempt
@@ -308,37 +364,98 @@ async function resolveWorkspace(
 
 // === Pipeline Input Construction ===
 
-async function loadPipelineConfig(configPath: string | undefined): Promise<PipelineConfig> {
-  if (!configPath) return {};
+/** Peek at config to detect mobile target before full validation. */
+async function detectMobileTarget(configPath: string): Promise<boolean> {
+  try {
+    const config = await parseConfig(configPath);
+    return config.pipeline?.target === 'mobile';
+  } catch {
+    return false;
+  }
+}
+
+/** Peek at config to detect API target before full validation. */
+async function detectApiTarget(configPath: string): Promise<boolean> {
+  try {
+    const config = await parseConfig(configPath);
+    return config.pipeline?.target === 'api';
+  } catch {
+    return false;
+  }
+}
+
+interface LoadedConfig {
+  pipelineConfig: PipelineConfig;
+  mobile: MobileConfig | null;
+  personas: PersonaDescriptor[];
+}
+
+async function loadPipelineConfig(configPath: string | undefined): Promise<LoadedConfig> {
+  if (!configPath) {
+    return { pipelineConfig: {}, mobile: null, personas: [{ name: 'default' }] };
+  }
   try {
     const config = await parseConfig(configPath);
     const raw = config.pipeline;
-    if (!raw) return {};
+    const pipelineConfig: PipelineConfig = {};
 
-    // FAILSAFE_SCHEMA parses all YAML values as strings — coerce to number
-    const result: PipelineConfig = {};
-    if (raw.retry_preset !== undefined) {
-      result.retry_preset = raw.retry_preset;
+    if (raw) {
+      // FAILSAFE_SCHEMA parses all YAML values as strings — coerce to number
+      if (raw.retry_preset !== undefined) {
+        pipelineConfig.retry_preset = raw.retry_preset;
+      }
+      if (raw.max_concurrent_pipelines !== undefined) {
+        pipelineConfig.max_concurrent_pipelines = Number(raw.max_concurrent_pipelines);
+      }
+      // DISABLED: whitebox runtime deprecated — coerce any whitebox config to graybox.
+      if (raw.mode !== undefined) {
+        if (raw.mode === 'whitebox') {
+          console.warn(
+            `Warning: pipeline.mode="whitebox" is disabled. Coercing to "graybox".`
+          );
+          pipelineConfig.mode = 'graybox';
+        } else {
+          pipelineConfig.mode = raw.mode;
+        }
+      } else {
+        pipelineConfig.mode = 'graybox';
+      }
+      if (raw.target !== undefined) {
+        pipelineConfig.target = raw.target;
+      }
     }
-    if (raw.max_concurrent_pipelines !== undefined) {
-      result.max_concurrent_pipelines = Number(raw.max_concurrent_pipelines);
-    }
-    if (raw.mode !== undefined) {
-      result.mode = raw.mode;
-    }
-    return result;
-  } catch {
-    // Config errors surface later in preflight. Don't block workflow start.
-    return {};
+
+    // Extract persona descriptors via distributeConfig (auto-migrates legacy
+    // single-credential configs into a single 'default' persona).
+    const distributed = distributeConfig(config);
+    const personas: PersonaDescriptor[] = distributed.authentication
+      ? distributed.authentication.personas.map((p) => ({
+          name: p.name,
+          ...(p.role && { role: p.role }),
+        }))
+      : [{ name: 'default' }];
+
+    return { pipelineConfig, mobile: config.mobile || null, personas };
+  } catch (error) {
+    console.warn(`Warning: failed to load pipeline config: ${error instanceof Error ? error.message : error}`);
+    return { pipelineConfig: {}, mobile: null, personas: [{ name: 'default' }] };
   }
 }
 
 function buildPipelineInput(
-  args: CliArgs, workspace: WorkspaceResolution, pipelineConfig: PipelineConfig
+  args: CliArgs, workspace: WorkspaceResolution, loaded: LoadedConfig
 ): PipelineInput {
+  const { pipelineConfig, mobile, personas } = loaded;
+  console.log(`Pipeline config: mode=${pipelineConfig.mode}, target=${pipelineConfig.target}`);
+  console.log(`Personas: ${personas.map((p) => p.name).join(', ')}`);
+
+  const workspacePath = args.workspacePath!;
+
   return {
-    webUrl: args.webUrl,
+    webUrl: args.webUrl || args.app || mobile?.backend_api_url || '',
     repoPath: args.repoPath,
+    workspacePath,
+    personas,
     workflowId: workspace.workflowId,
     sessionId: workspace.sessionId,
     ...(args.configPath && { configPath: args.configPath }),
@@ -347,6 +464,18 @@ function buildPipelineInput(
     ...(workspace.isResume && args.resumeFromWorkspace && { resumeFromWorkspace: args.resumeFromWorkspace }),
     ...(workspace.terminatedWorkflows.length > 0 && { terminatedWorkflows: workspace.terminatedWorkflows }),
     ...(Object.keys(pipelineConfig).length > 0 && { pipelineConfig }),
+    // Mobile-specific fields: CLI args override config values
+    ...(args.app && { bundleId: args.app }),
+    ...(args.device && { deviceId: args.device }),
+    ...(args.apk && { appPath: args.apk }),
+    ...(mobile && {
+      ...(!args.apk && mobile.app_path && { appPath: mobile.app_path }),
+      platform: mobile.platform,
+      ...(!args.device && mobile.device_id && { deviceId: mobile.device_id }),
+      ...(mobile.appium_url && { appiumUrl: mobile.appium_url }),
+      ...(mobile.backend_api_url && { backendApiUrl: mobile.backend_api_url }),
+      ...(!args.app && mobile.bundle_id && { bundleId: mobile.bundle_id }),
+    }),
   };
 }
 
@@ -358,8 +487,19 @@ function displayWorkflowInfo(args: CliArgs, workspace: WorkspaceResolution): voi
     console.log(`  (Resuming workspace: ${workspace.sessionId})`);
   }
   console.log();
-  console.log(`  Target:     ${args.webUrl}`);
-  console.log(`  Repository: ${args.repoPath}`);
+  if (args.isMobileTarget) {
+    console.log(`  App:        ${args.app || '(from config)'}`);
+    console.log(`  Device:     ${args.device || '(from config)'}`);
+    if (args.apk) {
+      console.log(`  APK:        ${args.apk}`);
+    }
+  } else if (args.isApiTarget) {
+    console.log(`  API:        ${args.webUrl}`);
+    console.log(`  Mode:       API-only (no browser/mobile)`);
+  } else {
+    console.log(`  Target:     ${args.webUrl}`);
+    console.log(`  Repository: ${args.repoPath}`);
+  }
   console.log(`  Workspace:  ${workspace.sessionId}`);
   if (args.configPath) {
     console.log(`  Config:     ${args.configPath}`);
@@ -440,7 +580,7 @@ async function waitForWorkflowResult(
 
 async function startPipeline(): Promise<void> {
   // 1. Parse CLI args and display splash
-  const args = parseCliArgs(process.argv.slice(2));
+  const args = await parseCliArgs(process.argv.slice(2));
   await displaySplashScreen();
 
   // 2. Connect to Temporal server
@@ -451,12 +591,22 @@ async function startPipeline(): Promise<void> {
   const client = new Client({ connection });
 
   try {
-    // 3. Resolve workspace (new or resume) and build pipeline input
+    // 3. Load config, resolve workspace, and build pipeline input
+    const loaded = await loadPipelineConfig(args.configPath);
+
     const workspace = await resolveWorkspace(client, args);
-    const pipelineConfig = await loadPipelineConfig(args.configPath);
-    const input = buildPipelineInput(args, workspace, pipelineConfig);
+
+    const workspacePath = path.resolve('./audit-logs', workspace.sessionId);
+    await fs.mkdir(path.join(workspacePath, 'deliverables'), { recursive: true });
+    args.workspacePath = workspacePath;
+    console.log(`Using workspace: ${workspacePath}`);
+    console.log(`Using docs:      ${args.repoPath}`);
+
+    const input = buildPipelineInput(args, workspace, loaded);
 
     // 4. Start the Temporal workflow
+    console.log(`DEBUG input.pipelineConfig: ${JSON.stringify(input.pipelineConfig)}`);
+    console.log(`DEBUG input.bundleId: ${input.bundleId}, input.platform: ${input.platform}`);
     const handle = await client.workflow.start<(input: PipelineInput) => Promise<PipelineState>>(
       'pentestPipelineWorkflow',
       {

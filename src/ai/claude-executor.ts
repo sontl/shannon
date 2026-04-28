@@ -16,6 +16,7 @@ import { formatTimestamp } from '../utils/formatting.js';
 import { AGENT_VALIDATORS, MCP_AGENT_MAPPING } from '../session-manager.js';
 import { AuditSession } from '../audit/index.js';
 import { createShannonHelperServer } from '../../mcp-server/dist/index.js';
+import { createAppiumTools } from '../../mcp-server/dist/appium/tools.js';
 import { AGENTS } from '../session-manager.js';
 import type { AgentName } from '../types/index.js';
 
@@ -55,12 +56,16 @@ interface StdioMcpServer {
 
 type McpServer = ReturnType<typeof createShannonHelperServer> | StdioMcpServer;
 
-// Configures MCP servers for agent execution, with Docker-specific Chromium handling
-function buildMcpServers(
+// Configures MCP servers for agent execution, with Docker-specific Chromium handling.
+// When personaName is provided, the Playwright user-data-dir is namespaced under
+// the workspace so cookies persist across agents of the same persona within the
+// run, and stay isolated between personas.
+async function buildMcpServers(
   sourceDir: string,
   agentName: string | null,
-  logger: ActivityLogger
-): Record<string, McpServer> {
+  logger: ActivityLogger,
+  personaName: string | undefined
+): Promise<Record<string, McpServer>> {
   // 1. Create the shannon-helper server (always present)
   const shannonHelperServer = createShannonHelperServer(sourceDir);
 
@@ -68,23 +73,53 @@ function buildMcpServers(
     'shannon-helper': shannonHelperServer,
   };
 
-  // 2. Look up the agent's Playwright MCP mapping
+  // 2. Look up the agent's MCP mapping (Playwright or Appium)
   if (agentName) {
     const promptTemplate = AGENTS[agentName as AgentName].promptTemplate;
-    const playwrightMcpName = MCP_AGENT_MAPPING[promptTemplate as keyof typeof MCP_AGENT_MAPPING] || null;
+    const mcpName = MCP_AGENT_MAPPING[promptTemplate as keyof typeof MCP_AGENT_MAPPING] || null;
 
-    if (playwrightMcpName) {
-      logger.info(`Assigned ${agentName} -> ${playwrightMcpName}`);
+    if (mcpName === 'api-only') {
+      // 3a. API agents use only shannon-helper — no browser/device automation
+      logger.info(`Assigned ${agentName} -> api-only (no MCP server, Bash+curl only)`);
 
-      const userDataDir = `/tmp/${playwrightMcpName}`;
+    } else if (mcpName && mcpName.startsWith('appium-')) {
+      // 3b. Configure Appium MCP for mobile agents (in-process, like shannon-helper)
+      logger.info(`Assigned ${agentName} -> ${mcpName} (Appium)`);
 
-      // 3. Configure Playwright MCP args with Docker/local browser handling
+      const appiumUrl = process.env.APPIUM_URL || 'http://localhost:4723';
+      const { createSdkMcpServer } = await import('@anthropic-ai/claude-agent-sdk');
+      const appiumTools = createAppiumTools(appiumUrl);
+
+      mcpServers[mcpName] = createSdkMcpServer({
+        name: mcpName,
+        version: '1.0.0',
+        tools: appiumTools,
+      });
+
+    } else if (mcpName) {
+      // 3b. Configure Playwright MCP for web agents
+      logger.info(`Assigned ${agentName} -> ${mcpName}${personaName ? ` (persona: ${personaName})` : ''}`);
+
+      const userDataDir = personaName
+        ? path.join(sourceDir, 'browsers', personaName, mcpName)
+        : `/tmp/${mcpName}`;
+      if (personaName) {
+        await fs.mkdirp(userDataDir);
+      }
+
       const isDocker = process.env.SHANNON_DOCKER === 'true';
+
+      // Per-action screenshots + DOM/network/console for replay. Trace ZIP
+      // viewable with `npx playwright show-trace <file>`.
+      const traceDir = path.join(sourceDir, 'traces', personaName || 'default');
+      await fs.mkdirp(traceDir);
 
       const mcpArgs: string[] = [
         '@playwright/mcp@0.0.68',
         '--isolated',
         '--user-data-dir', userDataDir,
+        '--save-trace',
+        '--output-dir', traceDir,
       ];
 
       if (isDocker) {
@@ -116,7 +151,7 @@ function buildMcpServers(
         }
       }
 
-      mcpServers[playwrightMcpName] = {
+      mcpServers[mcpName] = {
         type: 'stdio' as const,
         command: 'npx',
         args: mcpArgs,
@@ -220,7 +255,8 @@ export async function runClaudePrompt(
   agentName: string | null = null,
   auditSession: AuditSession | null = null,
   logger: ActivityLogger,
-  modelTier: ModelTier = 'medium'
+  modelTier: ModelTier = 'medium',
+  personaName?: string
 ): Promise<ClaudePromptResult> {
   // 1. Initialize timing and prompt
   const timer = new Timer(`agent-${description.toLowerCase().replace(/\s+/g, '-')}`);
@@ -237,13 +273,18 @@ export async function runClaudePrompt(
   logger.info(`Running Claude Code: ${description}...`);
 
   // 3. Configure MCP servers
-  const mcpServers = buildMcpServers(sourceDir, agentName, logger);
+  const mcpServers = await buildMcpServers(sourceDir, agentName, logger, personaName);
 
   // 4. Build env vars to pass to SDK subprocesses
   const sdkEnv: Record<string, string> = {
     CLAUDE_CODE_MAX_OUTPUT_TOKENS: process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS || '64000',
   };
   const passthroughVars = [
+    // PATH + shell basics — required so Bash tool can find curl, ls, cat, etc.
+    'PATH',
+    'HOME',
+    'LANG',
+    'LC_ALL',
     'ANTHROPIC_API_KEY',
     'CLAUDE_CODE_OAUTH_TOKEN',
     'ANTHROPIC_BASE_URL',

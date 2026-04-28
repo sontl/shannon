@@ -4,6 +4,14 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
+// NOTE: This module's source-code checkpoint/rollback logic was designed for
+// the legacy whitebox pipeline, which operated on git-managed source repositories.
+// The graybox pipeline runs against ./audit-logs/<sessionId>/ workspaces, which
+// are not git repos — every exported function short-circuits via isGitRepository()
+// and becomes a no-op in that case. The code is kept intact so whitebox can be
+// restored later if needed. Uncomment the whitebox agent registration in
+// src/types/agents.ts + src/session-manager.ts to restore.
+
 import { $ } from 'zx';
 import { PentestError } from './error-handling.js';
 import { ErrorCode } from '../types/errors.js';
@@ -185,8 +193,11 @@ export async function rollbackGitWorkspace(
       sourceDir,
       'hard reset for rollback'
     );
+    // Preserve audit artifacts so failed-attempt logs remain available for debugging.
+    // Mobile/API workspaces use audit-logs/{sessionId}/ as the git root, so an
+    // unscoped `git clean -fd` would wipe agents/, prompts/, deliverables/.
     await executeGitCommandWithRetry(
-      ['git', 'clean', '-fd'],
+      ['git', 'clean', '-fd', '-e', 'agents', '-e', 'prompts', '-e', 'deliverables'],
       sourceDir,
       'cleaning untracked files for rollback'
     );

@@ -18,14 +18,14 @@ export const displaySplashScreen = async (): Promise<void> => {
     const version = packageJson.version || '1.0.0';
 
     // Create the main SHANNON ASCII art
-    const shannonText = figlet.textSync('SHANNON', {
+    const shannonText = figlet.textSync('TECHIVIFLAW', {
       font: 'ANSI Shadow',
       horizontalLayout: 'default',
       verticalLayout: 'default',
     });
 
     // Apply golden gradient to SHANNON
-    const gradientShannon = gradient(['#F4C542', '#FFD700'])(shannonText);
+    const gradientShannon = gradient(['#4278f5', '#2f5ecc'])(shannonText);
 
     // Create minimal tagline with styling
     const tagline = chalk.bold.white('AI Penetration Testing Framework');

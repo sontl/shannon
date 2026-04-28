@@ -15,6 +15,8 @@ import type {
   Config,
   Rule,
   Authentication,
+  RawAuthentication,
+  Persona,
   DistributedConfig,
   SchemaHint,
 } from './types/config.js';
@@ -396,6 +398,43 @@ const performSecurityValidation = (config: Config): void => {
       }
     });
   }
+
+  if (config.mobile) {
+    const mobile = config.mobile;
+
+    // Validate app_path — no path traversal (only if provided)
+    if (mobile.app_path && /\.\.[\\/]/.test(mobile.app_path)) {
+      throw new PentestError(
+        'mobile.app_path contains path traversal pattern',
+        'config',
+        false,
+        { field: 'mobile.app_path' },
+        ErrorCode.CONFIG_VALIDATION_FAILED
+      );
+    }
+
+    // Validate URI fields against dangerous patterns
+    const uriFields = [
+      { value: mobile.appium_url, name: 'mobile.appium_url' },
+      { value: mobile.backend_api_url, name: 'mobile.backend_api_url' },
+    ] as const;
+
+    for (const field of uriFields) {
+      if (field.value) {
+        for (const pattern of DANGEROUS_PATTERNS) {
+          if (pattern.test(field.value)) {
+            throw new PentestError(
+              `${field.name} contains potentially dangerous pattern: ${pattern.source}`,
+              'config',
+              false,
+              { field: field.name, pattern: pattern.source },
+              ErrorCode.CONFIG_VALIDATION_FAILED
+            );
+          }
+        }
+      }
+    }
+  }
 };
 
 const validateRulesSecurity = (rules: Rule[] | undefined, ruleType: string): void => {
@@ -559,24 +598,42 @@ export const distributeConfig = (config: Config | null): DistributedConfig => {
   const focus = config?.rules?.focus || [];
   const authentication = config?.authentication || null;
   const schemas = config?.context?.schemas || [];
+  const mobile = config?.mobile || null;
 
   return {
     avoid: avoid.map(sanitizeRule),
     focus: focus.map(sanitizeRule),
-    authentication: authentication ? sanitizeAuthentication(authentication) : null,
+    authentication: authentication ? migrateAuthentication(authentication) : null,
     schemas: schemas.map(sanitizeSchema),
+    mobile,
   };
 };
 
-const sanitizeAuthentication = (auth: Authentication): Authentication => {
+const sanitizeCredentials = (creds: { username: string; password: string; totp_secret?: string }) => ({
+  username: creds.username.trim(),
+  password: creds.password,
+  ...(creds.totp_secret && { totp_secret: creds.totp_secret.trim() }),
+});
+
+const sanitizePersona = (persona: Persona): Persona => ({
+  name: persona.name.trim(),
+  ...(persona.role && { role: persona.role.trim() }),
+  credentials: sanitizeCredentials(persona.credentials),
+  ...(persona.login_url && { login_url: persona.login_url.trim() }),
+  ...(persona.login_flow && { login_flow: persona.login_flow.map((step) => step.trim()) }),
+});
+
+// Auto-migrate legacy single-credential authentication into the persona[] form.
+// Schema's oneOf guarantees exactly one of credentials/personas is present.
+const migrateAuthentication = (auth: RawAuthentication): Authentication => {
+  const personas: Persona[] = auth.personas
+    ? auth.personas
+    : [{ name: 'default', credentials: auth.credentials! }];
+
   return {
     login_type: auth.login_type.toLowerCase().trim() as Authentication['login_type'],
-    login_url: auth.login_url.trim(),
-    credentials: {
-      username: auth.credentials.username.trim(),
-      password: auth.credentials.password,
-      ...(auth.credentials.totp_secret && { totp_secret: auth.credentials.totp_secret.trim() }),
-    },
+    ...(auth.login_url && { login_url: auth.login_url.trim() }),
+    personas: personas.map(sanitizePersona),
     ...(auth.login_flow && { login_flow: auth.login_flow.map((step) => step.trim()) }),
     success_condition: {
       type: auth.success_condition.type.toLowerCase().trim() as Authentication['success_condition']['type'],

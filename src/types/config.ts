@@ -40,11 +40,31 @@ export interface Credentials {
   totp_secret?: string;
 }
 
+export interface Persona {
+  name: string;
+  role?: string;
+  credentials: Credentials;
+  login_url?: string;
+  login_flow?: string[];
+}
+
+// Raw shape accepted from YAML — exactly one of credentials/personas is set,
+// enforced by JSON schema. The parser auto-migrates credentials → personas.
+export interface RawAuthentication {
+  login_type: LoginType;
+  login_url?: string;
+  credentials?: Credentials;
+  personas?: Persona[];
+  login_flow?: string[];
+  success_condition: SuccessCondition;
+}
+
+// Internal post-migrate shape — personas[] is always set.
 export interface Authentication {
   login_type: LoginType;
-  login_url: string;
-  credentials: Credentials;
-  login_flow: string[];
+  login_url?: string;
+  personas: Persona[];
+  login_flow?: string[];
   success_condition: SuccessCondition;
 }
 
@@ -59,19 +79,34 @@ export interface ContextConfig {
   schemas?: SchemaHint[];
 }
 
+export type MobilePlatform = 'android' | 'ios';
+
+export interface MobileConfig {
+  platform: MobilePlatform;
+  app_path?: string;
+  device_id?: string;
+  appium_url?: string;
+  backend_api_url?: string;
+  bundle_id?: string;
+}
+
 export interface Config {
   rules?: Rules;
-  authentication?: Authentication;
+  authentication?: RawAuthentication;
   pipeline?: PipelineConfig;
   context?: ContextConfig;
+  mobile?: MobileConfig;
 }
 
 export type RetryPreset = 'default' | 'subscription';
+
+export type PipelineTarget = 'web' | 'mobile' | 'api';
 
 export interface PipelineConfig {
   retry_preset?: RetryPreset;
   max_concurrent_pipelines?: number;
   mode?: 'whitebox' | 'graybox';
+  target?: PipelineTarget;
 }
 
 export interface DistributedConfig {
@@ -79,4 +114,5 @@ export interface DistributedConfig {
   focus: Rule[];
   authentication: Authentication | null;
   schemas: SchemaHint[];
+  mobile: MobileConfig | null;
 }

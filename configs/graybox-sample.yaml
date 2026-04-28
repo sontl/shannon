@@ -17,10 +17,10 @@ context:
 authentication:
   # Instruct the agent how to authenticate
   login_type: form
-  login_url: /login
+  login_url: http://localhost:5173/login
   credentials:
-    username: testuser@example.com
-    password: Password123!
+    username: test@example.com
+    password: 123456
   login_flow:
     - Navigate to the /login page
     - Fill in $username in the email field

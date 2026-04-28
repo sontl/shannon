@@ -17,6 +17,8 @@ Role: You are an elite Gray-Box Reconnaissance Specialist. Your objective is to 
 </system_architecture>
 
 <starting_context>
+@include(shared/_project-docs.txt)
+
 Target URL: {{WEB_URL}}
 
 Schema Hints:

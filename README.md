@@ -1,5 +1,159 @@
->[!NOTE]
-> **[📢 New: Shannon is now available via `npx @keygraph/shannon`. →](https://github.com/KeygraphHQ/shannon/discussions/249)**
+> [!IMPORTANT]
+> **This is a fork of [KeygraphHQ/shannon](https://github.com/KeygraphHQ/shannon).**
+> Customized to extend Shannon's web pentest pipeline with **Mobile (Appium)** and **API-only** testing modes — giving a QA/security team a single unified framework for web, mobile, and API audits.
+>
+> Jump to: [What's different from upstream?](#whats-different-from-upstream) · [Usage (new modes)](#usage-new-modes) · [Original README](#-what-is-shannon)
+
+## What's different from upstream?
+
+### ✨ New: Mobile Graybox Pipeline
+Test native Android/iOS apps via Appium — no source code required.
+
+- New `pipeline.target: mobile` mode
+- 13 new mobile agents: `mobile-discovery`, `mobile-auth-mapper`, 5× vuln, 5× exploit, `mobile-report`
+- New Appium MCP server at `mcp-server/src/appium/` exposing 7 tools: `appium_tap`, `appium_type`, `appium_swipe`, `appium_screenshot`, `appium_hierarchy`, `appium_back`, `appium_launch_app`
+- CLI args: `APP=<bundle-id>`, `DEVICE=<device-id>`, `APK=<path>`
+- Prompts under `prompts/mobile/*.txt` (13 files)
+
+### ✨ New: API-Only Pipeline
+Test HTTP APIs directly — no browser, no mobile app.
+
+- New `pipeline.target: api` mode
+- 13 new API agents: `api-discovery`, `api-auth-mapper`, 5× vuln, 5× exploit, `api-report`
+- OpenAPI/Swagger/GraphQL schema ingestion via existing `context.schemas` config
+- Agents use Bash + curl + jq (no Playwright/Appium overhead)
+- "XSS" slot repurposed for **response injection & mass-assignment** testing (OWASP API Top 10 aligned)
+- Prompts under `prompts/api/*.txt` (13 files)
+
+### 🔧 Workspace Management (unified across modes)
+- All modes (web/mobile/api) require `REPO=` — folder under `./repos/` holds **target documentation** (specs, schemas, API docs) that is surfaced to every agent as input
+- Workspace is always created under `audit-logs/{sessionId}/`; deliverables land in `audit-logs/{sessionId}/deliverables/`
+- `repoPath` (docs) and `workspacePath` (output) are kept strictly separate
+
+### 🔧 Modified Resume Logic
+- Accepts workspaces without git checkpoints (graybox workspaces are not git repos by default)
+- Previously hard-failed on "no checkpoints" even when deliverables existed on disk
+
+### 🔧 Modified CLI Script (`shannon`)
+- Detects mode from `APP=` (mobile) or `pipeline.target: api` in config (API)
+- `REPO=` validation applies to every mode
+- Exports `APPIUM_URL`, `APPIUM_DEVICE_ID` env vars into the Docker container
+
+### 🔧 Modified Config Schema
+- `pipeline.target`: added `api` (was: `web` | `mobile`)
+- `authentication.login_url`: made optional (mobile/API may not use URL-based login)
+- `mobile.app_path`: made optional (can pass via CLI `APK=` or skip if app already installed)
+- Added `{"required": ["pipeline"]}` to `anyOf` for pipeline-only configs
+
+### 🔧 Modified Claude Executor
+- Added `PATH`, `HOME`, `LANG`, `LC_ALL` to SDK env var passthrough — fixes "command not found" for `ls`, `curl`, `jq` in the Bash tool
+- Added `api-only` as MCP mapping value — API agents get only `shannon-helper` MCP (no Playwright/Appium subprocess)
+
+### 🔧 Modified Dockerfile
+- Added `jq` runtime dependency (required by API agents for JSON parsing)
+
+### ✨ New Sample Configs
+- `configs/mobile-graybox-sample.yaml` — mobile graybox template
+- `configs/mobile-test-androidapp1.yaml` — example for testing a specific Android app (vulnerable notes app)
+- `configs/api-graybox-sample.yaml` — API graybox template
+
+---
+
+## Usage (new modes)
+
+### Web (original, unchanged)
+```bash
+./shannon start URL=https://example.com REPO=my-repo CONFIG=./configs/graybox-sample.yaml
+```
+
+### Mobile (new)
+Prerequisites:
+- Android emulator running (check with `adb devices`)
+- Appium server running at `http://localhost:4723`
+
+```bash
+# Terminal 1 — start Appium on the host machine
+export ANDROID_HOME=~/Library/Android/sdk
+export ANDROID_SDK_ROOT=~/Library/Android/sdk
+appium --port 4723
+
+# Terminal 2 — run Shannon
+./shannon start \
+  APP=com.example.app \
+  DEVICE=emulator-5554 \
+  REPO=my-mobile-target \
+  CONFIG=./configs/mobile-graybox-sample.yaml
+```
+
+Optional: if the app is not installed on the emulator, pass `APK=/path/to/app.apk`.
+
+### API-only (new)
+```bash
+./shannon start \
+  URL=https://api.example.com \
+  REPO=my-api-target \
+  CONFIG=./configs/api-graybox-sample.yaml
+```
+
+The config's `pipeline.target: api` switches Shannon into API-only mode — no browser, no emulator.
+
+### Multi-persona testing (cross-role IDOR / privilege escalation)
+Provide a list of personas instead of a single credential pair. Discovery runs once (shared), auth-mapper + vuln/exploit run once per persona in parallel, and the authz exploit agent reads every persona's token bundle so cross-role IDOR and vertical privilege escalation can be tested in a single workflow run.
+
+```yaml
+authentication:
+  login_type: form
+  login_url: https://app.example.com/login
+  login_flow:
+    - "Navigate to /login"
+    - "Fill the email field with $username"
+    - "Fill the password field with $password"
+    - "Click 'Sign In'"
+  success_condition: { type: url_contains, value: "/dashboard" }
+  personas:
+    - { name: admin,   role: administrator, credentials: { username: admin@x.com,   password: ... } }
+    - { name: viewer,  role: read-only,     credentials: { username: viewer@x.com,  password: ... } }
+```
+
+```bash
+./shannon start URL=https://app.example.com REPO=my-target CONFIG=./configs/multi-persona-sample.yaml
+```
+
+Cost trade-off: 2 personas ≈ 1.5–2× the cost of a single-persona run (discovery is shared, auth + vuln + exploit run per persona). The payoff is detection of a class of authz bugs that a single-persona run literally cannot find — true cross-role data exposure.
+
+**Backward compatibility:** Configs that still use a single `authentication.credentials` block continue to work unchanged. The parser auto-migrates them into a single persona named `default` at load time — no edits to existing YAML required.
+
+### Resume (all modes)
+```bash
+./shannon start URL=... CONFIG=... WORKSPACE=<existing-workspace-name>
+```
+
+---
+
+## Architecture
+
+```
+Original upstream:
+  Shannon → Playwright MCP  → Browser     → Website         (web pentest)
+
+This fork adds:
+  Shannon → Appium MCP      → Appium server → Emulator     → Mobile app     (mobile pentest)
+  Shannon → shannon-helper  → Bash + curl  → HTTP endpoint  (API pentest)
+```
+
+Mobile and API pipelines follow the same 13-agent structure as web graybox (discovery → auth-mapper → 5 parallel vuln/exploit pairs → report), maximizing code reuse and keeping reporting format consistent across modes.
+
+---
+
+## Known Limitations
+
+- Mobile pipeline requires Appium + emulator running on the host — Docker networking uses `host.docker.internal:4723`
+- Appium server needs `ANDROID_HOME` / `ANDROID_SDK_ROOT` env vars set to locate adb/aapt
+- API pipeline has no dedicated HTTP MCP tools — agents rely on Bash + curl + jq
+- `api-xss-*` agents test **response injection & mass-assignment**, not DOM XSS (which doesn't apply to pure APIs)
+- Mobile/API reports may be less detailed than web reports — set a larger model via env vars for higher quality output
+
+---
 
 <div align="center">
 
@@ -112,31 +266,65 @@ Shannon Pro supports a self-hosted runner model (similar to GitHub Actions self-
 
 ## 📑 Table of Contents
 
-- [What is Shannon?](#-what-is-shannon)
-- [Shannon in Action](#-shannon-in-action)
-- [Features](#-features)
-- [Product Line](#-product-line)
-- [Setup & Usage Instructions](#-setup--usage-instructions)
-  - [Prerequisites](#prerequisites)
-  - [Quick Start](#quick-start)
-  - [Monitoring Progress](#monitoring-progress)
-  - [Stopping Shannon](#stopping-shannon)
-  - [Usage Examples](#usage-examples)
-  - [Workspaces and Resuming](#workspaces-and-resuming)
-  - [Configuration (Optional)](#configuration-optional)
-  - [AWS Bedrock](#aws-bedrock)
-  - [Google Vertex AI](#google-vertex-ai)
-  - [Custom Base URL](#custom-base-url)
-  - [[EXPERIMENTAL - UNSUPPORTED] Router Mode (Alternative Providers)](#experimental---unsupported-router-mode-alternative-providers)
-  - [Output and Results](#output-and-results)
-- [Sample Reports](#-sample-reports)
-- [Benchmark](#-benchmark)
-- [Architecture](#️-architecture)
-- [Coverage and Roadmap](#-coverage-and-roadmap)
-- [Disclaimers](#️-disclaimers)
-- [License](#-license)
-- [Community & Support](#-community--support)
-- [Get in Touch](#-get-in-touch)
+- [Shannon — AI Pentester by Keygraph](#shannon--ai-pentester-by-keygraph)
+  - [🎯 What is Shannon?](#-what-is-shannon)
+  - [🎬 Shannon in Action](#-shannon-in-action)
+  - [✨ Features](#-features)
+  - [📦 Product Line](#-product-line)
+    - [Shannon Pro: Architecture Overview](#shannon-pro-architecture-overview)
+  - [📑 Table of Contents](#-table-of-contents)
+  - [🚀 Setup \& Usage Instructions](#-setup--usage-instructions)
+    - [Prerequisites](#prerequisites)
+    - [Quick Start](#quick-start)
+    - [Monitoring Progress](#monitoring-progress)
+    - [Stopping Shannon](#stopping-shannon)
+    - [Usage Examples](#usage-examples)
+    - [Workspaces and Resuming](#workspaces-and-resuming)
+    - [Prepare Your Repository](#prepare-your-repository)
+    - [Platform-Specific Instructions](#platform-specific-instructions)
+    - [Configuration (Optional)](#configuration-optional)
+      - [Create Configuration File](#create-configuration-file)
+      - [Basic Configuration Structure](#basic-configuration-structure)
+      - [TOTP Setup for 2FA](#totp-setup-for-2fa)
+      - [Subscription Plan Rate Limits](#subscription-plan-rate-limits)
+    - [AWS Bedrock](#aws-bedrock)
+      - [Quick Setup](#quick-setup)
+    - [Google Vertex AI](#google-vertex-ai)
+      - [Quick Setup](#quick-setup-1)
+    - [Custom Base URL](#custom-base-url)
+      - [Quick Setup](#quick-setup-2)
+    - [\[EXPERIMENTAL - UNSUPPORTED\] Router Mode (Alternative Providers)](#experimental---unsupported-router-mode-alternative-providers)
+      - [Quick Setup](#quick-setup-3)
+      - [Experimental Models](#experimental-models)
+      - [Disclaimer](#disclaimer)
+    - [Output and Results](#output-and-results)
+  - [📊 Sample Reports](#-sample-reports)
+      - [🧃 **OWASP Juice Shop** • GitHub](#-owasp-juice-shop--github)
+      - [🔗 **c{api}tal API** • GitHub](#-capital-api--github)
+      - [🚗 **OWASP crAPI** • GitHub](#-owasp-crapi--github)
+  - [📈 Benchmark](#-benchmark)
+  - [🏗️ Architecture](#️-architecture)
+    - [Architectural Overview](#architectural-overview)
+      - [**Phase 1: Reconnaissance**](#phase-1-reconnaissance)
+      - [**Phase 2: Vulnerability Analysis**](#phase-2-vulnerability-analysis)
+      - [**Phase 3: Exploitation**](#phase-3-exploitation)
+      - [**Phase 4: Reporting**](#phase-4-reporting)
+  - [📋 Coverage and Roadmap](#-coverage-and-roadmap)
+  - [⚠️ Disclaimers](#️-disclaimers)
+    - [Important Usage Guidelines \& Disclaimers](#important-usage-guidelines--disclaimers)
+      - [**1. Potential for Mutative Effects \& Environment Selection**](#1-potential-for-mutative-effects--environment-selection)
+      - [**2. Legal \& Ethical Use**](#2-legal--ethical-use)
+      - [**3. LLM \& Automation Caveats**](#3-llm--automation-caveats)
+      - [**4. Scope of Analysis**](#4-scope-of-analysis)
+      - [**5. Cost \& Performance**](#5-cost--performance)
+      - [**6. Windows Antivirus False Positives**](#6-windows-antivirus-false-positives)
+      - [**7. Security Considerations**](#7-security-considerations)
+  - [📜 License](#-license)
+  - [👥 Community \& Support](#-community--support)
+    - [Community Resources](#community-resources)
+    - [Stay Connected](#stay-connected)
+  - [💬 Get in Touch](#-get-in-touch)
+    - [Shannon Pro](#shannon-pro)
 
 ---
 

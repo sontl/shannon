@@ -107,15 +107,23 @@ export async function initializeAuditStructure(sessionMetadata: SessionMetadata)
 }
 
 /**
- * Copy deliverable files from repo to audit-logs for self-contained audit trail.
- * No-ops if source directory doesn't exist. Idempotent and parallel-safe.
+ * Copy deliverable files from the agent's workspace to audit-logs for a
+ * self-contained audit trail. No-ops if source directory doesn't exist, or if
+ * source and destination resolve to the same path (the common case now that
+ * workspacePath lives under ./audit-logs/<sessionId>/). Idempotent and
+ * parallel-safe.
  */
 export async function copyDeliverablesToAudit(
   sessionMetadata: SessionMetadata,
-  repoPath: string
+  workspacePath: string
 ): Promise<void> {
-  const sourceDir = path.join(repoPath, 'deliverables');
+  const sourceDir = path.join(workspacePath, 'deliverables');
   const destDir = path.join(generateAuditPath(sessionMetadata), 'deliverables');
+
+  // Fast path: deliverables already live in the audit directory.
+  if (path.resolve(sourceDir) === path.resolve(destDir)) {
+    return;
+  }
 
   let entries: string[];
   try {

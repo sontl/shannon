@@ -23,6 +23,8 @@ Role: You are a Gray-Box Injection Analysis Specialist. You identify SQL Injecti
 </system_architecture>
 
 <starting_context>
+@include(shared/_project-docs.txt)
+
 Target URL: {{WEB_URL}}
 
 <rules>

@@ -1,0 +1,56 @@
+pipeline:
+  # Gray-box DAST mode — no source code access
+  mode: graybox
+  # Target a native mobile app instead of a web application
+  target: mobile
+  # Limit concurrency to 3 — mobile device interaction is heavier than web requests.
+  # Reduce to 2 if the device is slow or you want to save API tokens.
+  max_concurrent_pipelines: 3
+
+mobile:
+  # Platform: android or ios
+  platform: android
+  # Path to the APK (Android) or IPA (iOS) file
+  app_path: /path/to/app-debug.apk
+  # Device or emulator ID (run `adb devices` to find yours)
+  device_id: emulator-5554
+  # Appium server URL (default: http://localhost:4723)
+  appium_url: http://localhost:4723
+  # Backend API URL — used for traffic interception and API testing (optional)
+  backend_api_url: https://api.example.com
+  # Android package name or iOS bundle ID
+  bundle_id: com.example.app
+
+# Authentication — same format as web configs.
+# The mobile agents will follow these steps via the app's UI.
+authentication:
+  login_type: form
+  login_url: https://api.example.com/login
+  credentials:
+    username: testuser@example.com
+    password: testpass123
+  login_flow:
+    - Launch the app and wait for the login screen
+    - Tap the email input field and type $username
+    - Tap the password input field and type $password
+    - Tap the "Sign In" button
+  success_condition:
+    type: element_present
+    value: "Home"
+
+rules:
+  focus:
+    - description: "Focus on the payment flow"
+      type: path
+      url_path: /api/payments
+    - description: "Test the user profile endpoints"
+      type: path
+      url_path: /api/profile
+
+  avoid:
+    - description: "Do not trigger account deletion"
+      type: path
+      url_path: /api/account/delete
+    - description: "Avoid the logout endpoint to preserve session"
+      type: path
+      url_path: /api/auth/logout

@@ -1,0 +1,6 @@
+Platform: {{PLATFORM}}
+App: {{APP_PATH}}
+Bundle ID: {{BUNDLE_ID}}
+Device: {{DEVICE_ID}}
+Appium: {{APPIUM_URL}}
+Backend API: {{BACKEND_API_URL}}

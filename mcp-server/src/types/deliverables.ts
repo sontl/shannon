@@ -45,6 +45,14 @@ export enum DeliverableType {
   DISCOVERY = 'DISCOVERY',
   AUTH_MAP = 'AUTH_MAP',
   REPORT = 'REPORT',
+
+  // Mobile pipeline agents
+  MOBILE_DISCOVERY = 'MOBILE_DISCOVERY',
+  MOBILE_AUTH_MAP = 'MOBILE_AUTH_MAP',
+
+  // API pipeline agents
+  API_DISCOVERY = 'API_DISCOVERY',
+  API_AUTH_MAP = 'API_AUTH_MAP',
 }
 
 /**
@@ -72,6 +80,10 @@ export const DELIVERABLE_FILENAMES: Record<DeliverableType, string> = {
   [DeliverableType.DISCOVERY]: 'graybox_discovery.md',
   [DeliverableType.AUTH_MAP]: 'graybox_auth_map.md',
   [DeliverableType.REPORT]: 'comprehensive_security_assessment_report.md',
+  [DeliverableType.MOBILE_DISCOVERY]: 'mobile_discovery.md',
+  [DeliverableType.MOBILE_AUTH_MAP]: 'mobile_auth_map.md',
+  [DeliverableType.API_DISCOVERY]: 'api_discovery.md',
+  [DeliverableType.API_AUTH_MAP]: 'api_auth_map.md',
 };
 
 /**

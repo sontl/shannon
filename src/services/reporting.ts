@@ -33,13 +33,36 @@ const GRAYBOX_DELIVERABLES: DeliverableFile[] = [
   { name: 'Authorization', path: 'authz_exploitation_evidence.md', required: false },
 ];
 
+const MOBILE_DELIVERABLES: DeliverableFile[] = [
+  { name: 'Mobile Discovery', path: 'mobile_discovery.md', required: false },
+  { name: 'Mobile Auth Map', path: 'mobile_auth_map.md', required: false },
+  { name: 'Injection', path: 'injection_exploitation_evidence.md', required: false },
+  { name: 'XSS', path: 'xss_exploitation_evidence.md', required: false },
+  { name: 'Authentication', path: 'auth_exploitation_evidence.md', required: false },
+  { name: 'SSRF', path: 'ssrf_exploitation_evidence.md', required: false },
+  { name: 'Authorization', path: 'authz_exploitation_evidence.md', required: false },
+];
+
+const API_DELIVERABLES: DeliverableFile[] = [
+  { name: 'API Discovery', path: 'api_discovery.md', required: false },
+  { name: 'API Auth Map', path: 'api_auth_map.md', required: false },
+  { name: 'Injection', path: 'injection_exploitation_evidence.md', required: false },
+  { name: 'Response Injection / Mass Assignment', path: 'xss_exploitation_evidence.md', required: false },
+  { name: 'Authentication', path: 'auth_exploitation_evidence.md', required: false },
+  { name: 'SSRF', path: 'ssrf_exploitation_evidence.md', required: false },
+  { name: 'Authorization', path: 'authz_exploitation_evidence.md', required: false },
+];
+
 // Pure function: Assemble final report from specialist deliverables
 export async function assembleFinalReport(
   sourceDir: string,
   logger: ActivityLogger,
-  mode: 'whitebox' | 'graybox' = 'whitebox'
+  mode: 'whitebox' | 'graybox' | 'mobile' | 'api' = 'whitebox'
 ): Promise<string> {
-  const deliverableFiles = mode === 'graybox' ? GRAYBOX_DELIVERABLES : WHITEBOX_DELIVERABLES;
+  const deliverableFiles = mode === 'api' ? API_DELIVERABLES
+    : mode === 'mobile' ? MOBILE_DELIVERABLES
+    : mode === 'graybox' ? GRAYBOX_DELIVERABLES
+    : WHITEBOX_DELIVERABLES;
 
   const sections: string[] = [];
 

@@ -47,13 +47,28 @@ import type { AgentMetrics } from '../types/metrics.js';
 
 /**
  * Input for agent execution.
+ *
+ * `repoPath` is the read-only docs folder surfaced to the prompt via
+ * {{REPO_PATH}}. `workspacePath` is the agent's cwd and deliverables root —
+ * anything the agent writes (checkpoints, deliverables, logs) lands there,
+ * never in repoPath.
  */
 export interface AgentExecutionInput {
   webUrl: string;
   repoPath: string;
+  workspacePath: string;
   configPath?: string | undefined;
   pipelineTestingMode?: boolean | undefined;
   attemptNumber: number;
+  // Mobile-specific fields (set when pipeline.target is 'mobile')
+  bundleId?: string | undefined;
+  deviceId?: string | undefined;
+  appiumUrl?: string | undefined;
+  appPath?: string | undefined;
+  platform?: string | undefined;
+  backendApiUrl?: string | undefined;
+  // Persona running this agent (only set for persona-specific phases).
+  personaName?: string | undefined;
 }
 
 interface FailAgentOpts {
@@ -96,7 +111,7 @@ export class AgentExecutionService {
     auditSession: AuditSession,
     logger: ActivityLogger
   ): Promise<Result<AgentEndResult, PentestError>> {
-    const { webUrl, repoPath, configPath, pipelineTestingMode = false, attemptNumber } = input;
+    const { webUrl, repoPath, workspacePath, configPath, pipelineTestingMode = false, attemptNumber } = input;
 
     // 1. Load config (if provided)
     const configResult = await this.configLoader.loadOptional(configPath);
@@ -111,7 +126,17 @@ export class AgentExecutionService {
     try {
       prompt = await loadPrompt(
         promptTemplate,
-        { webUrl, repoPath },
+        {
+          webUrl,
+          repoPath,
+          ...(input.bundleId && { bundleId: input.bundleId }),
+          ...(input.deviceId && { deviceId: input.deviceId }),
+          ...(input.appiumUrl && { appiumUrl: input.appiumUrl }),
+          ...(input.appPath && { appPath: input.appPath }),
+          ...(input.platform && { platform: input.platform }),
+          ...(input.backendApiUrl && { backendApiUrl: input.backendApiUrl }),
+          ...(input.personaName && { personaName: input.personaName }),
+        },
         distributedConfig,
         pipelineTestingMode,
         logger
@@ -129,9 +154,11 @@ export class AgentExecutionService {
       );
     }
 
-    // 3. Create git checkpoint before execution
+    // 3. Create git checkpoint on the workspace (no-op if workspace is not a git repo).
+    //    Note: git operations target workspacePath (not repoPath) — the agent's working
+    //    area — so rollback/checkpoint semantics apply to generated output, never input docs.
     try {
-      await createGitCheckpoint(repoPath, agentName, attemptNumber, logger);
+      await createGitCheckpoint(workspacePath, agentName, attemptNumber, logger);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       return err(
@@ -139,7 +166,7 @@ export class AgentExecutionService {
           `Failed to create git checkpoint for ${agentName}: ${errorMessage}`,
           'filesystem',
           false,
-          { agentName, repoPath, originalError: errorMessage },
+          { agentName, workspacePath, originalError: errorMessage },
           ErrorCode.GIT_CHECKPOINT_FAILED
         )
       );
@@ -148,23 +175,24 @@ export class AgentExecutionService {
     // 4. Start audit logging
     await auditSession.startAgent(agentName, prompt, attemptNumber);
 
-    // 5. Execute agent
+    // 5. Execute agent with cwd = workspacePath (deliverables & logs go here)
     const result: ClaudePromptResult = await runClaudePrompt(
       prompt,
-      repoPath,
+      workspacePath,
       '', // context
       agentName, // description
       agentName,
       auditSession,
       logger,
-      AGENTS[agentName].modelTier
+      AGENTS[agentName].modelTier,
+      input.personaName
     );
 
     // 6. Spending cap check - defense-in-depth
     if (result.success && (result.turns ?? 0) <= 2 && (result.cost || 0) === 0) {
       const resultText = result.result || '';
       if (isSpendingCapBehavior(result.turns ?? 0, result.cost || 0, resultText)) {
-        return this.failAgent(agentName, repoPath, auditSession, logger, {
+        return this.failAgent(agentName, workspacePath, auditSession, logger, {
           attemptNumber, result,
           rollbackReason: 'spending cap detected',
           errorMessage: `Spending cap likely reached: ${resultText.slice(0, 100)}`,
@@ -178,7 +206,7 @@ export class AgentExecutionService {
 
     // 7. Handle execution failure
     if (!result.success) {
-      return this.failAgent(agentName, repoPath, auditSession, logger, {
+      return this.failAgent(agentName, workspacePath, auditSession, logger, {
         attemptNumber, result,
         rollbackReason: 'execution failure',
         errorMessage: result.error || 'Agent execution failed',
@@ -189,10 +217,10 @@ export class AgentExecutionService {
       });
     }
 
-    // 8. Validate output
-    const validationPassed = await validateAgentOutput(result, agentName, repoPath, logger);
+    // 8. Validate output (deliverables are under workspacePath/deliverables/)
+    const validationPassed = await validateAgentOutput(result, agentName, workspacePath, logger);
     if (!validationPassed) {
-      return this.failAgent(agentName, repoPath, auditSession, logger, {
+      return this.failAgent(agentName, workspacePath, auditSession, logger, {
         attemptNumber, result,
         rollbackReason: 'validation failure',
         errorMessage: `Agent ${agentName} failed output validation`,
@@ -204,8 +232,8 @@ export class AgentExecutionService {
     }
 
     // 9. Success - commit deliverables, then capture checkpoint hash
-    await commitGitSuccess(repoPath, agentName, logger);
-    const commitHash = await getGitCommitHash(repoPath);
+    await commitGitSuccess(workspacePath, agentName, logger);
+    const commitHash = await getGitCommitHash(workspacePath);
 
     const endResult: AgentEndResult = {
       attemptNumber,
@@ -222,12 +250,12 @@ export class AgentExecutionService {
 
   private async failAgent(
     agentName: AgentName,
-    repoPath: string,
+    workspacePath: string,
     auditSession: AuditSession,
     logger: ActivityLogger,
     opts: FailAgentOpts
   ): Promise<Result<AgentEndResult, PentestError>> {
-    await rollbackGitWorkspace(repoPath, opts.rollbackReason, logger);
+    await rollbackGitWorkspace(workspacePath, opts.rollbackReason, logger);
 
     const endResult: AgentEndResult = {
       attemptNumber: opts.attemptNumber,

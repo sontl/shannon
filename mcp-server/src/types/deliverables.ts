@@ -79,7 +79,7 @@ export const DELIVERABLE_FILENAMES: Record<DeliverableType, string> = {
   [DeliverableType.SSRF_EVIDENCE]: 'ssrf_exploitation_evidence.md',
   [DeliverableType.DISCOVERY]: 'graybox_discovery.md',
   [DeliverableType.AUTH_MAP]: 'graybox_auth_map.md',
-  [DeliverableType.REPORT]: 'comprehensive_security_assessment_report.md',
+  [DeliverableType.REPORT]: 'final_report.md',
   [DeliverableType.MOBILE_DISCOVERY]: 'mobile_discovery.md',
   [DeliverableType.MOBILE_AUTH_MAP]: 'mobile_auth_map.md',
   [DeliverableType.API_DISCOVERY]: 'api_discovery.md',

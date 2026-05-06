@@ -182,5 +182,6 @@ After writing both files, call `save_deliverable` with `deliverable_type: "AUTH_
 3. Authenticated endpoint access matrix populated for all discovered endpoints
 4. IDOR and privilege escalation sections populated with evidence
 
+Run the workspace hygiene cleanup gate (see `## Workspace hygiene` above) and remove any stray `.cjs` / `.js` / `.png` / `tmp*` files at the workspace root before announcing.
 Announce "**GRAYBOX AUTH MAP COMPLETE**" and stop. Do NOT add summaries or recaps after announcing.
 </conclusion_trigger>

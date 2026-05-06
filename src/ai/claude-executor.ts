@@ -100,8 +100,12 @@ async function buildMcpServers(
       // 3b. Configure Playwright MCP for web agents
       logger.info(`Assigned ${agentName} -> ${mcpName}${personaName ? ` (persona: ${personaName})` : ''}`);
 
+      // Keep Playwright runtime artifacts (browser profiles, traces) under a
+      // single hidden subfolder so the workspace root stays clean — only
+      // orchestrator output (session.json, workflow.log, agents/, prompts/,
+      // deliverables/) should be visible there.
       const userDataDir = personaName
-        ? path.join(sourceDir, 'browsers', personaName, mcpName)
+        ? path.join(sourceDir, '.runtime', 'browsers', personaName, mcpName)
         : `/tmp/${mcpName}`;
       if (personaName) {
         await fs.mkdirp(userDataDir);
@@ -111,7 +115,7 @@ async function buildMcpServers(
 
       // Per-action screenshots + DOM/network/console for replay. Trace ZIP
       // viewable with `npx playwright show-trace <file>`.
-      const traceDir = path.join(sourceDir, 'traces', personaName || 'default');
+      const traceDir = path.join(sourceDir, '.runtime', 'traces', personaName || 'default');
       await fs.mkdirp(traceDir);
 
       const mcpArgs: string[] = [
@@ -256,7 +260,8 @@ export async function runClaudePrompt(
   auditSession: AuditSession | null = null,
   logger: ActivityLogger,
   modelTier: ModelTier = 'medium',
-  personaName?: string
+  personaName?: string,
+  abortController?: AbortController
 ): Promise<ClaudePromptResult> {
   // 1. Initialize timing and prompt
   const timer = new Timer(`agent-${description.toLowerCase().replace(/\s+/g, '-')}`);
@@ -307,6 +312,11 @@ export async function runClaudePrompt(
   }
 
   // 5. Configure SDK options
+  // Bridge Temporal cancellation: when the activity is cancelled (StartToClose
+  // timeout, heartbeat timeout, workflow cancel), abort the SDK iterator so the
+  // Node process stops making API calls. Without this, abandoned attempts keep
+  // burning tokens until maxTurns (~10k) — see runAgentActivity in
+  // src/temporal/activities.ts where the controller is wired to Context.
   const options = {
     model: resolveModel(modelTier),
     maxTurns: 10_000,
@@ -315,6 +325,7 @@ export async function runClaudePrompt(
     allowDangerouslySkipPermissions: true,
     mcpServers,
     env: sdkEnv,
+    ...(abortController && { abortController }),
   };
 
   if (!execContext.useCleanOutput) {

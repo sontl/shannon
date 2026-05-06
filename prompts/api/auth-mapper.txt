@@ -130,5 +130,6 @@ After writing, call `save_deliverable` with `deliverable_type: "API_AUTH_MAP"`.
 </deliverable_instructions>
 
 <conclusion_trigger>
+Run the workspace hygiene cleanup gate (see `## Workspace hygiene` above) and remove any stray `.cjs` / `.js` / `.png` / `tmp*` files at the workspace root before announcing.
 Announce "**API AUTH MAP COMPLETE**" and stop.
 </conclusion_trigger>

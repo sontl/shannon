@@ -106,9 +106,10 @@ export class AgentLogger {
   static async savePrompt(
     sessionMetadata: SessionMetadata,
     agentName: string,
-    promptContent: string
+    promptContent: string,
+    personaName?: string
   ): Promise<void> {
-    const promptPath = generatePromptPath(sessionMetadata, agentName);
+    const promptPath = generatePromptPath(sessionMetadata, agentName, personaName);
 
     // Create header with metadata
     const header = [

@@ -127,6 +127,19 @@ async function runAgentActivity(
   const startTime = Date.now();
   const attemptNumber = Context.current().info.attempt;
 
+  // Bridge Temporal cancellation → SDK abort. Without this, when Temporal
+  // cancels the activity (StartToClose / heartbeat timeout, workflow cancel),
+  // Node keeps the for-await loop alive in claude-executor.ts and the SDK
+  // continues making API calls until maxTurns. The orphan can outlive the
+  // workflow by hours and silently bills tokens.
+  const abortController = new AbortController();
+  const cancellationSignal = Context.current().cancellationSignal;
+  if (cancellationSignal.aborted) {
+    abortController.abort();
+  } else {
+    cancellationSignal.addEventListener('abort', () => abortController.abort(), { once: true });
+  }
+
   // Heartbeat loop - signals worker is alive to Temporal server
   const heartbeatInterval = setInterval(() => {
     const elapsed = Math.floor((Date.now() - startTime) / 1000);
@@ -156,6 +169,7 @@ async function runAgentActivity(
         configPath,
         pipelineTestingMode,
         attemptNumber,
+        abortController,
         ...(input.bundleId && { bundleId: input.bundleId }),
         ...(input.deviceId && { deviceId: input.deviceId }),
         ...(input.appiumUrl && { appiumUrl: input.appiumUrl }),
@@ -657,7 +671,8 @@ async function augmentWithPersonaCompletions(
 export async function loadResumeState(
   workspaceName: string,
   expectedUrl: string,
-  expectedWorkspacePath: string
+  expectedWorkspacePath: string,
+  personaNames: readonly string[] = []
 ): Promise<ResumeState> {
   // 1. Validate workspace exists
   const sessionPath = path.join('./audit-logs', workspaceName, 'session.json');
@@ -712,11 +727,24 @@ export async function loadResumeState(
     completedAgents.push(agentName);
   }
 
-  // 3b. Persona-aware resume — for auth-mapper agents, scan per-persona files
-  // and push qualified `<persona>/<agentName>` entries so runAuthMapperPhase
-  // can skip personas that already finished. Without this, the per-persona
-  // skip check (workflows.ts) misses every persona because completedAgents
-  // only carries unqualified names.
+  // 3b. Fan out qualified `<persona>/<agentName>` entries for every completed
+  // agent. The vuln/exploit pipeline phase (workflows.ts:runPipelinePhase) and
+  // the auth-mapper phase (workflows.ts:runAuthMapperPhase) check skip using
+  // qualified names, but session.json only stores unqualified names — without
+  // this fan-out, persona-aware phases re-run every completed agent and
+  // overwrite their deliverables.
+  const unqualifiedSnapshot = [...completedAgents];
+  for (const agentName of unqualifiedSnapshot) {
+    for (const persona of personaNames) {
+      const qualified = `${persona}/${agentName}`;
+      if (!completedAgents.includes(qualified)) {
+        completedAgents.push(qualified);
+      }
+    }
+  }
+
+  // 3c. Safety net for auth-mapper — also scan per-persona files on disk in
+  // case session.json was written before fan-out existed (older runs).
   await augmentWithPersonaCompletions(completedAgents, expectedWorkspacePath);
 
   // 4. Validate that at least one agent completed with deliverables

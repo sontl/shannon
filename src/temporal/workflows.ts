@@ -42,7 +42,7 @@ import {
   type ResumeState,
 } from './shared.js';
 import type { AgentName, VulnType } from '../types/agents.js';
-import { ALL_AGENTS, GRAYBOX_AGENTS, WHITEBOX_AGENTS, MOBILE_GRAYBOX_AGENTS, API_GRAYBOX_AGENTS } from '../types/agents.js';
+import { GRAYBOX_AGENTS, WHITEBOX_AGENTS, MOBILE_GRAYBOX_AGENTS, API_GRAYBOX_AGENTS } from '../types/agents.js';
 import { toWorkflowSummary } from './summary-mapper.js';
 import { formatWorkflowError } from './workflow-errors.js';
 
@@ -199,15 +199,40 @@ export async function pentestPipelineWorkflow(
   let resumeState: ResumeState | null = null;
 
   if (input.resumeFromWorkspace) {
+    // Persona names must be passed so loadResumeState can fan out qualified
+    // `<persona>/<agentName>` entries for every completed agent. The vuln/
+    // exploit and auth-mapper phases check skip using qualified names; without
+    // this list, every completed agent would be re-run on resume and overwrite
+    // its deliverables. Mirrors the default in step 265 below.
+    const resumePersonaNames = (input.personas.length > 0 ? input.personas : [{ name: 'default' }])
+      .map((p) => p.name);
+
     // 1. Load resume state (validates workspace, cross-checks deliverables)
     resumeState = await a.loadResumeState(
       input.resumeFromWorkspace,
       input.webUrl,
-      input.workspacePath
+      input.workspacePath,
+      resumePersonaNames
     );
 
-    // 2. Restore git workspace and clean up incomplete deliverables
-    const incompleteAgents = ALL_AGENTS.filter(
+    // 2. Restore git workspace and clean up incomplete deliverables.
+    // IMPORTANT: scope incomplete-agent cleanup to the agents of the CURRENT
+    // pipeline. Agents across pipelines (graybox/mobile/api/whitebox) reuse the
+    // same `deliverableFilename` (e.g. `injection_analysis_deliverable.md` is
+    // shared by graybox-injection-vuln + mobile-injection-vuln + api-injection-vuln).
+    // If we filter from ALL_AGENTS, every graybox resume would treat the mobile
+    // and api siblings as incomplete and unlink the file the graybox agent just
+    // produced — silently wiping deliverables on every resume.
+    const target = input.pipelineConfig?.target || 'web';
+    // DISABLED: whitebox runtime deprecated — default mode is now 'graybox'.
+    const mode = input.pipelineConfig?.mode || 'graybox';
+    const agentsForMode = target === 'api'
+      ? API_GRAYBOX_AGENTS
+      : target === 'mobile'
+        ? MOBILE_GRAYBOX_AGENTS
+        : (mode === 'graybox' ? GRAYBOX_AGENTS : WHITEBOX_AGENTS);
+
+    const incompleteAgents = agentsForMode.filter(
       (agentName) => !resumeState!.completedAgents.includes(agentName)
     ) as AgentName[];
 
@@ -218,14 +243,6 @@ export async function pentestPipelineWorkflow(
     );
 
     // 3. Short-circuit if all agents for this mode already completed
-    const target = input.pipelineConfig?.target || 'web';
-    // DISABLED: whitebox runtime deprecated — default mode is now 'graybox'.
-    const mode = input.pipelineConfig?.mode || 'graybox';
-    const agentsForMode = target === 'api'
-      ? API_GRAYBOX_AGENTS
-      : target === 'mobile'
-        ? MOBILE_GRAYBOX_AGENTS
-        : (mode === 'graybox' ? GRAYBOX_AGENTS : WHITEBOX_AGENTS);
     if (resumeState.completedAgents.length === agentsForMode.length) {
       log.info(`All ${agentsForMode.length} agents already completed. Nothing to resume.`);
       state.status = 'completed';

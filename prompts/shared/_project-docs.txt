@@ -13,3 +13,37 @@ Detected subfolders for this run: {{DOCS_STRUCTURE}}
 Start every session by listing `{{REPO_PATH}}/` to ground your analysis in the provided documentation. Prefer reading docs on demand — do not dump entire files into your working context unless directly relevant to the current testing phase.
 
 **DO NOT write to `{{REPO_PATH}}/`** — it is input-only. Save deliverables via the `save_deliverable` tool, which writes to the deliverables directory automatically.
+
+## Workspace hygiene (STRICT — violations break the pipeline)
+
+Your current working directory is the workspace root (e.g. `/app/audit-logs/<workspace-id>/`). The orchestrator owns these entries there: `session.json`, `workflow.log`, `agents/`, `prompts/`, `deliverables/`, `.runtime/`. **You MUST NOT create any other file or folder at the workspace root, in any phase, for any reason.**
+
+### Hard rules
+
+1. **`Write` tool path policy.** Every `Write` call's `file_path` MUST be one of:
+   - `/tmp/<anything>` — preferred for throwaway scripts (auto-discarded, outside workspace).
+   - An absolute path inside `deliverables/` — only when the file is the actual deliverable you will hand off to `save_deliverable` via `file_path` (large reports). Never `Write` arbitrary helper files there.
+   Any other absolute path — including the workspace root, `/app/audit-logs/.../<name>.cjs`, `/app/audit-logs/.../<name>.json`, `repos/`, or relative paths that resolve to the workspace root — is **FORBIDDEN**.
+
+2. **Throwaway debug scripts (`.cjs`, `.js`, Python, curl batch).** Default to running them inline via `node -e '…'`, `python3 -c '…'`, `bash -c '…'`, or Bash heredoc — nothing persisted. If a multi-step script is unavoidable, write it to `/tmp/scratch-<short-name>.cjs` and run it from there. Stray script names at the workspace root such as `login-test.cjs`, `xss_test.cjs`, `xss_test2.cjs`, `xss_final.cjs`, `debug.py`, `tmp.json` are **FORBIDDEN** — they have caused real audit-log clutter and will be flagged as bugs.
+
+3. **Findings, evidence, reports, JSON artifacts that the report agent cites** → call the `save_deliverable` MCP tool. It writes under `deliverables/` automatically. Do NOT use `Write` or `Bash` (`echo > …`, `tee`, redirection) to create files under `deliverables/` directly. **One narrow exception:** the final report agent (graybox/mobile/api `report` phase) MUST `Write` `deliverables/final_report.md` directly because the content exceeds the inline tool-call token budget — see that prompt's `<finalization>` for the exact two-step procedure. No other agent and no other path qualifies for this exception.
+
+4. **Screenshots / images.** Screenshot capture is DISABLED for this pipeline. Do NOT call `browser_take_screenshot` or save any `.png` / `.jpg`. Cite browser/Appium output via DOM snapshots, HTTP request/response text, and console logs instead.
+
+5. **`mkdir` policy.** `deliverables/`, `agents/`, `prompts/`, `.runtime/` already exist — do NOT `mkdir` them. Do NOT run `mkdir` against any path whose final segment ends in `.md` / `.json` / `.txt` / `.cjs` / `.js` / `.png` / `.jpg` — those are file names, not directories. If you ever feel the need to type `mkdir -p deliverables/foo.md`, STOP — you are confusing a file path for a directory.
+
+### Pre-completion cleanup gate (MANDATORY)
+
+Before announcing your completion banner (e.g. `**GRAYBOX XSS EXPLOITATION COMPLETE**`), run this Bash command in the workspace root and verify the output is empty:
+
+```bash
+find . -maxdepth 2 -type f \
+  \( -name "*.cjs" -o -name "*.js" -o -name "*.png" -o -name "*.jpg" \
+     -o -name "*.py" -o -name "tmp*" -o -name "scratch*" \) \
+  -not -path "./agents/*" -not -path "./prompts/*" \
+  -not -path "./deliverables/*" -not -path "./.runtime/*" \
+  -not -path "./node_modules/*"
+```
+
+If the output is non-empty, `rm` each listed file (or `mv` to `/tmp/` if you want to keep it for debugging) **before** announcing completion. A non-empty post-completion result = pipeline failure.

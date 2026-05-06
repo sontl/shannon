@@ -1,8 +1,12 @@
 Please complete these tasks using your MCP tools:
 
+<!-- DISABLED 2026-05-05: screenshot/image saving disabled — keep as reference
 1. Navigate to https://example.com and take a screenshot:
    - Use {{MCP_SERVER}}__browser_navigate to go to https://example.com
    - Use {{MCP_SERVER}}__browser_take_screenshot
+-->
+1. Navigate to https://example.com:
+   - Use {{MCP_SERVER}}__browser_navigate to go to https://example.com
 
 2. Save an analysis deliverable:
    - Use save_deliverable with deliverable_type "SSRF_ANALYSIS"

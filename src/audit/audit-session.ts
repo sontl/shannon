@@ -103,13 +103,17 @@ export class AuditSession {
   async startAgent(
     agentName: string,
     promptContent: string,
-    attemptNumber: number = 1
+    attemptNumber: number = 1,
+    personaName?: string
   ): Promise<void> {
     await this.ensureInitialized();
 
-    // 1. Save prompt snapshot (only on first attempt)
+    // 1. Save prompt snapshot (only on first attempt). Persona suffix prevents
+    // concurrent fan-outs of the same agent from colliding on the shared
+    // `<agent>.md.tmp` rename inside atomicWrite (worker would log
+    // ENOENT/ConfigurationError and abort the losing personas).
     if (attemptNumber === 1) {
-      await AgentLogger.savePrompt(this.sessionMetadata, agentName, promptContent);
+      await AgentLogger.savePrompt(this.sessionMetadata, agentName, promptContent, personaName);
     }
 
     // 2. Create and initialize the per-agent logger

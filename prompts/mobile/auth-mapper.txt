@@ -165,5 +165,6 @@ After writing the file, call `save_deliverable` with `deliverable_type: "MOBILE_
 4. IDOR and privilege escalation sections populated with evidence
 5. Mobile-specific token security checks documented
 
+Run the workspace hygiene cleanup gate (see `## Workspace hygiene` above) and remove any stray `.cjs` / `.js` / `.png` / `tmp*` files at the workspace root before announcing.
 Announce "**MOBILE AUTH MAP COMPLETE**" and stop. Do NOT add summaries or recaps after announcing.
 </conclusion_trigger>

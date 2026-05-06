@@ -108,7 +108,7 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
   //   displayName: 'Report agent',
   //   prerequisites: ['injection-exploit', 'xss-exploit', 'auth-exploit', 'ssrf-exploit', 'authz-exploit'],
   //   promptTemplate: 'report-executive',
-  //   deliverableFilename: 'comprehensive_security_assessment_report.md',
+  //   deliverableFilename: 'final_report.md',
   //   modelTier: 'small',
   // },
   'discovery': {
@@ -204,7 +204,7 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
       'graybox-ssrf-exploit', 'graybox-authz-exploit',
     ],
     promptTemplate: 'graybox/report',
-    deliverableFilename: 'comprehensive_security_assessment_report.md',
+    deliverableFilename: 'final_report.md',
     modelTier: 'small',
   },
 
@@ -302,7 +302,7 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
       'mobile-ssrf-exploit', 'mobile-authz-exploit',
     ],
     promptTemplate: 'mobile/report',
-    deliverableFilename: 'comprehensive_security_assessment_report.md',
+    deliverableFilename: 'final_report.md',
     modelTier: 'small',
   },
 
@@ -400,7 +400,7 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
       'api-ssrf-exploit', 'api-authz-exploit',
     ],
     promptTemplate: 'api/report',
-    deliverableFilename: 'comprehensive_security_assessment_report.md',
+    deliverableFilename: 'final_report.md',
     modelTier: 'small',
   },
 });
@@ -612,11 +612,11 @@ export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze
   //   const reportFile = path.join(
   //     sourceDir,
   //     'deliverables',
-  //     'comprehensive_security_assessment_report.md'
+  //     'final_report.md'
   //   );
   //   const reportExists = await fs.pathExists(reportFile);
   //   if (!reportExists) {
-  //     logger.error('Missing required deliverable: comprehensive_security_assessment_report.md');
+  //     logger.error('Missing required deliverable: final_report.md');
   //   }
   //   return reportExists;
   // },
@@ -650,11 +650,11 @@ export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze
     const reportFile = path.join(
       sourceDir,
       'deliverables',
-      'comprehensive_security_assessment_report.md'
+      'final_report.md'
     );
     const reportExists = await fs.pathExists(reportFile);
     if (!reportExists) {
-      logger.error('Missing required deliverable: comprehensive_security_assessment_report.md');
+      logger.error('Missing required deliverable: final_report.md');
     }
     return reportExists;
   },
@@ -688,11 +688,11 @@ export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze
     const reportFile = path.join(
       sourceDir,
       'deliverables',
-      'comprehensive_security_assessment_report.md'
+      'final_report.md'
     );
     const reportExists = await fs.pathExists(reportFile);
     if (!reportExists) {
-      logger.error('Missing required deliverable: comprehensive_security_assessment_report.md');
+      logger.error('Missing required deliverable: final_report.md');
     }
     return reportExists;
   },
@@ -726,11 +726,11 @@ export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze
     const reportFile = path.join(
       sourceDir,
       'deliverables',
-      'comprehensive_security_assessment_report.md'
+      'final_report.md'
     );
     const reportExists = await fs.pathExists(reportFile);
     if (!reportExists) {
-      logger.error('Missing required deliverable: comprehensive_security_assessment_report.md');
+      logger.error('Missing required deliverable: final_report.md');
     }
     return reportExists;
   },

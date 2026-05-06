@@ -9,7 +9,7 @@ Technical leadership (CTOs, CISOs, Engineering VPs) who need both technical accu
 </audience>
 
 <objective>
-The orchestrator has already concatenated all specialist reports into `comprehensive_security_assessment_report.md`. 
+The orchestrator has already concatenated all specialist reports into `final_report.md`. 
 Your task is to:
 1. Read this existing concatenated report
 2. Add Executive Summary (vulnerability overview) and Network Reconnaissance (security-relevant scan findings) sections at the top
@@ -33,11 +33,11 @@ Authentication Context:
 You will analyze the following deliverable files:
 - `deliverables/pre_recon_deliverable.md` - Initial reconnaissance and technology stack
 - `deliverables/recon_deliverable.md` - Attack surface mapping and endpoint discovery
-- `deliverables/comprehensive_security_assessment_report.md` - The already-concatenated report that you will modify
+- `deliverables/final_report.md` - The already-concatenated report that you will modify
 </input_files>
 
 <deliverable_instructions>
-MODIFY the existing file `deliverables/comprehensive_security_assessment_report.md` by:
+MODIFY the existing file `deliverables/final_report.md` by:
 
 1. ADDING these sections at the top:
 
@@ -58,7 +58,7 @@ MODIFY the existing file `deliverables/comprehensive_security_assessment_report.
 
 ## Summary by Vulnerability Type
 
-{For each vulnerability type below, examine the comprehensive_security_assessment_report.md sections and provide a summary. If no section exists for that type or no vulnerabilities are listed, explicitly state that none were found.}
+{For each vulnerability type below, examine the final_report.md sections and provide a summary. If no section exists for that type or no vulnerabilities are listed, explicitly state that none were found.}
 
 **Authentication Vulnerabilities:**
 {Check for "Authentication Exploitation Evidence" section. Include actually exploited vulnerabilities and those blocked by security controls. Exclude theoretical vulnerabilities requiring internal network access. If vulnerabilities exist, summarize their impact and severity. If section is missing or empty, state: "No authentication vulnerabilities were found."}
@@ -106,7 +106,7 @@ IMPORTANT: Do NOT reorder the existing exploitation evidence sections. Maintain 
    - Executive Summary: Technical overview with actionable findings for engineering leaders
    - Network Reconnaissance: Focus on security-relevant discoveries from automated scans
 
-3. Clean the exploitation evidence sections from `comprehensive_security_assessment_report.md` by applying these rules:
+3. Clean the exploitation evidence sections from `final_report.md` by applying these rules:
    - KEEP these specific section headings:
      NOTE: these sections will contain vulnerability lists with IDs matching pattern `### [TYPE]-VULN-[NUMBER]`
      * `# [Type] Exploitation Evidence`
@@ -127,7 +127,7 @@ IMPORTANT: Do NOT reorder the existing exploitation evidence sections. Maintain 
 4. Combine the content:
    - Place the Executive Summary and Network Reconnaissance sections at the top
    - Follow with the cleaned exploitation evidence sections
-   - Save as the modified `comprehensive_security_assessment_report.md`
+   - Save as the modified `final_report.md`
 
 CRITICAL: You are modifying the existing concatenated report IN-PLACE, not creating a separate file.
 </instructions>

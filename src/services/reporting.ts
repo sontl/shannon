@@ -95,7 +95,12 @@ export async function assembleFinalReport(
 
   const finalContent = sections.join('\n\n');
   const deliverablesDir = path.join(sourceDir, 'deliverables');
-  const finalReportPath = path.join(deliverablesDir, 'comprehensive_security_assessment_report.md');
+  // Intermediate draft consumed by the report agent. The agent reads this file,
+  // enriches it (executive summary, CVSS/CWE/WSTG metadata, heat map, appendices),
+  // and writes the final result to `final_report.md`. Splitting the input/output
+  // filenames keeps the idempotency short-circuit in AgentExecutionService correct
+  // — the report agent only skips when the *final* file already exists.
+  const finalReportPath = path.join(deliverablesDir, 'final_report.assembled.md');
 
   try {
     // Ensure deliverables directory exists
@@ -158,7 +163,7 @@ export async function injectModelIntoReport(
   logger.info(`Injecting model info into report: ${modelStr}`);
 
   // 3. Read the final report
-  const reportPath = path.join(repoPath, 'deliverables', 'comprehensive_security_assessment_report.md');
+  const reportPath = path.join(repoPath, 'deliverables', 'final_report.md');
 
   if (!(await fs.pathExists(reportPath))) {
     logger.warn('Final report not found, skipping model injection');

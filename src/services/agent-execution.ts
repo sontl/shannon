@@ -21,6 +21,8 @@
  * No Temporal dependencies - pure domain logic.
  */
 
+import path from 'path';
+
 import type { ActivityLogger } from '../types/activity-logger.js';
 import { Result, ok, err, isErr } from '../types/result.js';
 import { ErrorCode, type PentestErrorType } from '../types/errors.js';
@@ -44,6 +46,47 @@ import type { AgentEndResult } from '../types/audit.js';
 import type { AgentName } from '../types/agents.js';
 import type { ConfigLoaderService } from './config-loader.js';
 import type { AgentMetrics } from '../types/metrics.js';
+import { fileExists } from '../utils/file-io.js';
+
+// Agents that fan out per-persona AND write a persona-suffixed file.
+// Auth-mapper variants land under deliverables/auth/<base>_<persona>.md.
+// Authz-exploit (graybox + api) lands under deliverables/<base>_<persona>.md.
+// Other persona-aware agents (vuln/exploit) reuse the canonical filename
+// regardless of persona, so the canonical-path check below covers them.
+const PERSONA_SUFFIXED_AUTH_MAPPERS: ReadonlySet<AgentName> = new Set<AgentName>([
+  'auth-mapper',
+  'mobile-auth-mapper',
+  'api-auth-mapper',
+]);
+
+const PERSONA_SUFFIXED_AUTHZ_EXPLOITS: ReadonlySet<AgentName> = new Set<AgentName>([
+  'graybox-authz-exploit',
+  'api-authz-exploit',
+]);
+
+/**
+ * Compute the on-disk path of an agent's expected deliverable.
+ *
+ * Defaults to `<workspace>/deliverables/<filename>`. Persona-aware agents
+ * override the default with persona-suffixed paths that match what the
+ * agent prompt actually writes.
+ */
+function getExpectedDeliverablePath(
+  workspacePath: string,
+  agentName: AgentName,
+  personaName?: string
+): string {
+  const baseFilename = AGENTS[agentName].deliverableFilename;
+  if (personaName && PERSONA_SUFFIXED_AUTH_MAPPERS.has(agentName)) {
+    const stem = baseFilename.replace(/\.md$/, '');
+    return path.join(workspacePath, 'deliverables', 'auth', `${stem}_${personaName}.md`);
+  }
+  if (personaName && PERSONA_SUFFIXED_AUTHZ_EXPLOITS.has(agentName)) {
+    const stem = baseFilename.replace(/\.md$/, '');
+    return path.join(workspacePath, 'deliverables', `${stem}_${personaName}.md`);
+  }
+  return path.join(workspacePath, 'deliverables', baseFilename);
+}
 
 /**
  * Input for agent execution.
@@ -69,6 +112,11 @@ export interface AgentExecutionInput {
   backendApiUrl?: string | undefined;
   // Persona running this agent (only set for persona-specific phases).
   personaName?: string | undefined;
+  // Bridges Temporal activity cancellation into the SDK. Wired by
+  // runAgentActivity in src/temporal/activities.ts so a StartToClose / heartbeat
+  // timeout aborts the SDK iterator instead of leaving an orphaned process that
+  // keeps billing API calls until maxTurns.
+  abortController?: AbortController | undefined;
 }
 
 interface FailAgentOpts {
@@ -112,6 +160,24 @@ export class AgentExecutionService {
     logger: ActivityLogger
   ): Promise<Result<AgentEndResult, PentestError>> {
     const { webUrl, repoPath, workspacePath, configPath, pipelineTestingMode = false, attemptNumber } = input;
+
+    // 0. Idempotency short-circuit. Temporal retries an activity from scratch
+    //    after StartToClose timeout, even when the agent already produced its
+    //    deliverable in the killed attempt. Without this guard each retry costs
+    //    another full SDK run (~$3 / ~2h for discovery). Mirrors the disk check
+    //    used by loadResumeState in src/temporal/activities.ts.
+    const expectedDeliverable = getExpectedDeliverablePath(workspacePath, agentName, input.personaName);
+    if (await fileExists(expectedDeliverable)) {
+      logger.info(
+        `Deliverable already exists for ${agentName} at ${expectedDeliverable} — skipping execution (idempotent retry)`
+      );
+      return ok({
+        attemptNumber,
+        duration_ms: 0,
+        cost_usd: 0,
+        success: true,
+      });
+    }
 
     // 1. Load config (if provided)
     const configResult = await this.configLoader.loadOptional(configPath);
@@ -173,7 +239,7 @@ export class AgentExecutionService {
     }
 
     // 4. Start audit logging
-    await auditSession.startAgent(agentName, prompt, attemptNumber);
+    await auditSession.startAgent(agentName, prompt, attemptNumber, input.personaName);
 
     // 5. Execute agent with cwd = workspacePath (deliverables & logs go here)
     const result: ClaudePromptResult = await runClaudePrompt(
@@ -185,7 +251,8 @@ export class AgentExecutionService {
       auditSession,
       logger,
       AGENTS[agentName].modelTier,
-      input.personaName
+      input.personaName,
+      input.abortController
     );
 
     // 6. Spending cap check - defense-in-depth

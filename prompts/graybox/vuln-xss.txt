@@ -182,5 +182,6 @@ If no vulnerabilities found, save an empty queue: `{"vulnerabilities": []}`.
 3. Exploitation queue JSON written and saved (even if empty)
 4. Every developer-hinted focus endpoint tested for XSS
 
+Run the workspace hygiene cleanup gate (see `## Workspace hygiene` above) and remove any stray `.cjs` / `.js` / `.png` / `tmp*` files at the workspace root before announcing.
 Announce "**GRAYBOX XSS ANALYSIS COMPLETE**" and stop. Do NOT add summaries or recaps.
 </conclusion_trigger>

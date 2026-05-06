@@ -67,11 +67,19 @@ export function generateLogPath(
 }
 
 /**
- * Generate path to prompt snapshot file
+ * Generate path to prompt snapshot file. When `personaName` is provided the
+ * filename is suffixed (`<agent>_<persona>.md`) so per-persona fan-outs of the
+ * same agent (e.g. auth-mapper running once per persona) don't race on a
+ * shared `<agent>.md.tmp` rename inside `atomicWrite`.
  */
-export function generatePromptPath(sessionMetadata: SessionMetadata, agentName: string): string {
+export function generatePromptPath(
+  sessionMetadata: SessionMetadata,
+  agentName: string,
+  personaName?: string
+): string {
   const auditPath = generateAuditPath(sessionMetadata);
-  return path.join(auditPath, 'prompts', `${agentName}.md`);
+  const filename = personaName ? `${agentName}_${personaName}.md` : `${agentName}.md`;
+  return path.join(auditPath, 'prompts', filename);
 }
 
 /**

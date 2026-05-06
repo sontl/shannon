@@ -30,7 +30,7 @@ import { createValidationError, createGenericError } from '../utils/error-format
 export const SaveDeliverableInputSchema = z.object({
   deliverable_type: z.nativeEnum(DeliverableType).describe('Type of deliverable to save'),
   content: z.string().min(1).optional().describe('File content (markdown for analysis/evidence, JSON for queues). Optional if file_path is provided.'),
-  file_path: z.string().optional().describe('Path to a file whose contents should be used as the deliverable content. Relative paths are resolved against the deliverables directory. Use this instead of content for large reports to avoid output token limits.'),
+  file_path: z.string().optional().describe('Save destination path (relative to workspace root). When `content` is omitted, also used as the source. Falls back to the canonical filename for `deliverable_type` if omitted.'),
 });
 
 export type SaveDeliverableInput = z.infer<typeof SaveDeliverableInputSchema>;
@@ -90,6 +90,39 @@ function resolveContent(
 }
 
 /**
+ * Resolve the save destination filename relative to the deliverables directory.
+ *
+ * When `file_path` is provided, validates it lives under the workspace's
+ * deliverables/ folder and returns a deliverables-relative path. When omitted,
+ * returns the canonical filename for the deliverable type so legacy
+ * single-persona prompts keep working unchanged.
+ */
+function resolveSaveDestination(
+  args: SaveDeliverableInput,
+  targetDir: string,
+  deliverable_type: DeliverableType,
+): string | ToolResult {
+  if (!args.file_path) {
+    return DELIVERABLE_FILENAMES[deliverable_type];
+  }
+
+  const deliverablesDir = path.resolve(targetDir, 'deliverables');
+  const resolvedPath = path.isAbsolute(args.file_path)
+    ? path.resolve(args.file_path)
+    : path.resolve(targetDir, args.file_path);
+
+  if (!isPathContained(deliverablesDir, resolvedPath)) {
+    return createToolResult(createValidationError(
+      `Path "${args.file_path}" resolves outside the deliverables directory`,
+      false,
+      { deliverableType: deliverable_type, allowedBase: deliverablesDir },
+    ));
+  }
+
+  return path.relative(deliverablesDir, resolvedPath);
+}
+
+/**
  * Create save_deliverable handler with targetDir captured in closure.
  *
  * This factory pattern ensures each MCP server instance has its own targetDir,
@@ -117,12 +150,18 @@ function createSaveDeliverableHandler(targetDir: string) {
         }
       }
 
-      const filename = DELIVERABLE_FILENAMES[deliverable_type];
-      const filepath = saveDeliverableFile(targetDir, filename, content);
+      // Resolve save destination: prefer caller-supplied file_path (persona-suffixed
+      // paths from parallel persona runs), fall back to the canonical hardcoded
+      // filename. Containment check below blocks path traversal.
+      const destination = resolveSaveDestination(args, targetDir, deliverable_type);
+      if (typeof destination !== 'string') {
+        return destination;
+      }
+      const filepath = saveDeliverableFile(targetDir, destination, content);
 
       const successResponse: SaveDeliverableResponse = {
         status: 'success',
-        message: `Deliverable saved successfully: ${filename}`,
+        message: `Deliverable saved successfully: ${destination}`,
         filepath,
         deliverableType: deliverable_type,
         validated: isQueueType(deliverable_type),

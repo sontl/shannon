@@ -1,6 +1,40 @@
 <!-- BEGIN:COMMON -->
-**IF you are not already logged in when you open playwright, these are the login instructions** 
+**IF you are not already logged in when you open playwright, these are the login instructions**
 **NOTE: playwright automatically saves sessions so ensure you are not already logged in before executing these steps**
+
+<critical_fallback_browser_blocked>
+**STOP-AND-SWITCH RULE — DO NOT WASTE TURNS RETRYING:**
+
+If `browser_navigate` (or any Playwright tool) returns ANY of these errors on the login URL:
+- `"Blocked request. This host ... is not allowed"` (Vite `server.allowedHosts`)
+- HTTP 403 with body mentioning `allowedHosts` / `vite.config`
+- `"ERR_NAME_NOT_RESOLVED"` / `"ERR_CONNECTION_REFUSED"`
+- The page never reaches the login form after `wait_for` / navigation
+
+→ **IMMEDIATELY abandon Playwright for the entire task.** Do NOT:
+- Retry the same URL
+- Try alternate hostnames (`localhost` ↔ `127.0.0.1` ↔ `host.docker.internal`)
+- Open a different Playwright agent instance
+
+**Switch to API-only mode (curl + Bash):**
+1. Identify the API base URL. Common patterns:
+   - Same origin as login_url
+   - One port lower (e.g., login at `:4000` → API at `:3001`)
+   - Check `deliverables/graybox_discovery.md` for the recorded API base
+2. Authenticate via the API directly using curl:
+   ```bash
+   curl -s -X POST <api-base>/api/auth/login \
+     -H "Content-Type: application/json" \
+     -d '{"username":"$username","password":"$password"}'
+   ```
+3. Extract auth from the response:
+   - JSON `.token` field → use as `Authorization: Bearer <token>`
+   - `Set-Cookie: <name>=...` header → use with `-b "<name>=<value>"`
+4. **Continue your ENTIRE primary task using curl + Bash only.** API-level evidence (raw JSON responses showing unsanitized payloads, error leaks, status codes) is acceptable proof for stored/reflected vulnerabilities — you do NOT need browser DOM rendering to prove the vulnerability exists.
+5. For DOM-based / browser-only vulns (e.g., DOM XSS sinks): document the API-level evidence and note "browser confirmation blocked by Vite allowedHosts on this target — exploitation pre-condition (unsanitized response) confirmed via curl".
+
+This rule overrides any retry logic in the per-phase prompt below.
+</critical_fallback_browser_blocked>
 
 <user_provided_configuration>
 {{user_instructions}}

@@ -12,27 +12,26 @@
  */
 
 import { writeFileSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { dirname, join } from 'path';
 
 /**
- * Save deliverable file to deliverables/ directory
+ * Save deliverable file under the workspace's deliverables/ directory.
  *
- * @param targetDir - Target directory for deliverables (passed explicitly to avoid race conditions)
- * @param filename - Name of the deliverable file
+ * @param targetDir - Workspace root (deliverables/ is created beneath it)
+ * @param filename - Path relative to deliverables/ (may include subdirs, e.g. `auth/foo.md`)
  * @param content - File content to save
  */
 export function saveDeliverableFile(targetDir: string, filename: string, content: string): string {
   const deliverablesDir = join(targetDir, 'deliverables');
   const filepath = join(deliverablesDir, filename);
 
-  // Ensure deliverables directory exists
+  // Create the parent directory of the target file (covers subdirs like `auth/`)
   try {
-    mkdirSync(deliverablesDir, { recursive: true });
+    mkdirSync(dirname(filepath), { recursive: true });
   } catch {
-    throw new Error(`Cannot create deliverables directory at ${deliverablesDir}`);
+    throw new Error(`Cannot create directory for ${filepath}`);
   }
 
-  // Write file (atomic write - single operation)
   writeFileSync(filepath, content, 'utf8');
 
   return filepath;

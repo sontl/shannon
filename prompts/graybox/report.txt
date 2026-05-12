@@ -6,14 +6,17 @@ The orchestrator has assembled the gray-box findings into `deliverables/final_re
 **Strategy — incremental enrichment, NOT one giant Write.**
 Generating the entire ~80–150 KB final report inside a single `Write` tool call exceeds the upstream API's 120-second proxy timeout (real production bug — root cause of repeated `Cloudflare 524` failures on this agent). You MUST instead build the report by stitching small pieces:
 
+0. Load DevOps remediation claims from `{{REPO_PATH}}/remediation/` (zero-or-more `.md` tables). If empty/absent, set `claims_count = 0` and skip steps 2.5 and 5.5.
 1. Copy the assembled body to the final path (one `Bash` call).
-2. Inject a per-finding metadata block under each finding title (one small `Edit` per finding — ~20–30 calls, each a few hundred bytes).
+2. Inject a per-finding metadata block under each finding title (one small `Edit` per finding — ~20–30 calls, each a few hundred bytes). Fill `Status (Previous Run)` and `Status (Current Run)` from the cross-check (claim ↔ finding signature).
+2.5. For each remediation claim with NO matching current finding, run the per-Vuln-Type re-probe template (one curl/Playwright call each). Stash verdicts in `/tmp/remediation_results.md`.
 3. Build the executive header (`/tmp/header.md`) with one `Write` call (a few KB).
 4. Build the post-findings appendices (`/tmp/footer.md`) with one `Write` call (a few KB).
+4.5. If `claims_count > 0`, append section `7.5 Remediation Verification` to `/tmp/footer.md` from `/tmp/remediation_results.md` (one `Bash cat >>`). Otherwise omit the section entirely.
 5. Stitch header + enriched body + footer with one `Bash cat`.
 6. Register via `save_deliverable`.
 
-Each step is small, so no single tool call comes close to the 120 s budget.
+Each step is small, so no single tool call comes close to the 120 s budget. See `<remediation_verification>` for the schema, vuln-type vocabulary, re-probe templates, and the section 7.5 output format.
 
 **Output rules (apply throughout):**
 - Read `deliverables/final_report.assembled.md` — never edit the assembled draft in place; you operate on `deliverables/final_report.md` (a copy you create in step 1).
@@ -34,7 +37,10 @@ The following deliverables were produced by the gray-box pipeline:
 - `deliverables/graybox_discovery.md` — attack surface map (endpoints, technologies, schemas ingested)
 - `deliverables/graybox_auth_map.md` — auth analysis (token format, access matrix, IDOR findings)
 - `deliverables/final_report.assembled.md` — assembled exploitation evidence to enrich (input only — do not write here)
+- `{{REPO_PATH}}/remediation/*.md` — DevOps fix claims to re-verify (optional; absent = first run, no verification rendered)
 </input_files>
+
+@include(shared/_remediation-verification.txt)
 
 <header_template>
 Write this content to `/tmp/header.md` in step 3. Fill placeholders from `graybox_discovery.md`, `graybox_auth_map.md`, and the finding inventory you built in step 2. Keep the structure exact — downstream tooling parses these section headings.
@@ -48,15 +54,18 @@ Write this content to `/tmp/header.md` in step 3. Fill placeholders from `graybo
 |-------|-------|
 | Report Title | Gray-Box Security Assessment — {target name} |
 | Target | {{WEB_URL}} |
-| Report Version | 1.0 — First Round |
-| Assessment Period | {start date} → {end date} |
+| Report Version | {auto: 1.0 if claims_count == 0, else next minor — e.g. 1.1, 1.2} |
+| Assessment Cadence | {previous run date if recorded in claims, else "N/A"} → {current date} |
 | Prepared By | Shannon AI Pentest Pipeline (gray-box DAST) |
 | Reviewed By | TBD |
 | Classification | CONFIDENTIAL |
+{remediation_claims_row — render only when claims_count > 0:
+| Remediation Claims Source | repos/{project}/remediation/ ({N} claims, {M} files) |
+}
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
-| 1.0 | {current date} | Shannon | Initial first-round assessment |
+| {version} | {current date} | Shannon | {"Initial first-round assessment" when claims_count == 0, else "Re-test of {N} DevOps remediation claims; see section 7.5"} |
 
 ## 1. Executive Summary
 - **Target:** {{WEB_URL}}
@@ -104,28 +113,32 @@ This assessment follows the standards listed below. Each finding in Section 6 is
 ### 4.1 OWASP WSTG Coverage Matrix
 For each Epic, mark **Passed**, **Failed**, or **N/A** based on whether confirmed findings exist in that category. Use the exploitation evidence below as the source of truth — never mark Passed for a category that was not actually probed.
 
-| OWASP Epic | First Round | Final Round | Notes |
-|------------|-------------|-------------|-------|
-| Information Gathering | N/A | TBD | Reconnaissance only — not pass/fail |
-| Configuration and Deployment Management Testing | Passed / Failed | TBD | {evidence reference if Failed} |
-| Identity Management Testing | Passed / Failed | TBD | |
-| Authentication Testing | Passed / Failed | TBD | |
-| Authorization Testing | Passed / Failed | TBD | |
-| Session Management Testing | Passed / Failed | TBD | |
-| Input Validation Testing | Passed / Failed | TBD | |
-| Testing for Error Handling | Passed / Failed | TBD | |
-| Testing for Weak Cryptography | Passed / Failed | TBD | |
-| Business Logic Testing | Passed / Failed / Not Covered | TBD | DAST has limited coverage — flag as "Not Covered" if no agent probed it |
-| Client-side Testing | Passed / Failed | TBD | |
+| OWASP Epic | Previous Run | Current Run | Notes |
+|------------|--------------|-------------|-------|
+| Information Gathering | {N/A} | N/A | Reconnaissance only — not pass/fail |
+| Configuration and Deployment Management Testing | {Passed / Failed / N/A} | Passed / Failed | {evidence reference if Failed} |
+| Identity Management Testing | {Passed / Failed / N/A} | Passed / Failed | |
+| Authentication Testing | {Passed / Failed / N/A} | Passed / Failed | |
+| Authorization Testing | {Passed / Failed / N/A} | Passed / Failed | |
+| Session Management Testing | {Passed / Failed / N/A} | Passed / Failed | |
+| Input Validation Testing | {Passed / Failed / N/A} | Passed / Failed | |
+| Testing for Error Handling | {Passed / Failed / N/A} | Passed / Failed | |
+| Testing for Weak Cryptography | {Passed / Failed / N/A} | Passed / Failed | |
+| Business Logic Testing | {Passed / Failed / N/A} | Passed / Failed / Not Covered | DAST has limited coverage — flag as "Not Covered" if no agent probed it |
+| Client-side Testing | {Passed / Failed / N/A} | Passed / Failed | |
+
+When `claims_count == 0`, set every `Previous Run` cell to `N/A`. Otherwise the cell reflects the prior-round verdict for any signature covered by a remediation claim in this category.
 
 ### 4.2 Findings Distribution
 
-| Severity | First Round | Closed | Remaining | Accepted Risk |
-|----------|-------------|--------|-----------|---------------|
-| Critical | N | TBD | TBD | TBD |
-| High | N | TBD | TBD | TBD |
-| Medium | N | TBD | TBD | TBD |
-| Low | N | TBD | TBD | TBD |
+| Severity | Previous Run | Closed (Confirmed Fixed) | Remaining (Open + Regression) | Accepted Risk |
+|----------|--------------|--------------------------|-------------------------------|---------------|
+| Critical | {prior count or N/A} | {count of `✅ Confirmed Fixed` in section 7.5 at this severity} | {count of current findings at this severity} | TBD |
+| High | {prior count or N/A} | {…} | {…} | TBD |
+| Medium | {prior count or N/A} | {…} | {…} | TBD |
+| Low | {prior count or N/A} | {…} | {…} | TBD |
+
+When `claims_count == 0`, set every `Previous Run` and `Closed` cell to `N/A`.
 
 ### 4.3 Vulnerability Findings Overview
 
@@ -166,18 +179,18 @@ Do this once per finding. Do NOT rewrite or remove the existing Summary / Steps 
 | OWASP WSTG | WSTG-{CAT}-{NN} (e.g., WSTG-INPV-05) |
 | OWASP Top 10 (2021) | A{NN}:2021 — {category} |
 | Affected Endpoint(s) | {method + path} |
-| Status (First Round) | Open |
-| Status (Final Round) | TBD — pending retest |
+| Status (Previous Run) | {derived per `<remediation_verification>` rules — "Open (DevOps claimed fixed on {Fix Date}, ref {Fix Reference})" if claim matches signature; "N/A — no prior record" if claims folder populated but no match; "N/A — first run" if claims_count == 0} |
+| Status (Current Run) | {derived per enum — "❌ Still Vulnerable — regression" if claim matches; "Open" if no prior claim; "✅ Confirmed Fixed" or "⚠️ Cannot Verify" only appear in section 7.5, not here} |
 
 **Recommendation:**
 - {Concrete fix #1 — code-level or config-level}
 - {Concrete fix #2 — defense-in-depth}
 - {Reference: link to OWASP cheat sheet, vendor docs, or RFC}
 
-**Retest Result (Final Round):**
-- Date: TBD
-- Result: TBD (PASSED / FAILED / PARTIAL)
-- Evidence: TBD
+**Retest Result (Current Run):**
+- Date: {current date if claim matched OR re-probe was run, else TBD}
+- Result: {PASSED / FAILED / PARTIAL — only when prior claim exists for this signature; else TBD}
+- Evidence: {curl command + response excerpt; link to section 7.5 row when applicable}
 ```
 
 CVSS / CWE / WSTG mapping guidance:
@@ -219,6 +232,8 @@ Write this content to `/tmp/footer.md` in step 4. Fill `{Finding IDs}` cells fro
 | Unlikely | {Finding IDs} | | | |
 
 Likelihood is derived from CVSS Exploitability (AV/AC/PR/UI). Impact is derived from CVSS C/I/A.
+
+{section_7_5_placeholder — when claims_count > 0, append the rendered "## 7.5 Remediation Verification" block here per `<remediation_verification>` output format. When claims_count == 0, OMIT this placeholder entirely.}
 
 ## 8. Conclusion
 
@@ -267,6 +282,13 @@ Apply rules 1, 2, and 5 by NOT carrying offending sentences forward into the met
 <finalization>
 Execute these steps in order. Each is a single, small tool call — none of them generates the whole report.
 
+**Step 0 — load DevOps remediation claims (if any):**
+```bash
+ls {{REPO_PATH}}/remediation/*.md 2>/dev/null && \
+  cat {{REPO_PATH}}/remediation/*.md > /tmp/remediation_claims.md
+```
+If the folder is absent or empty, `ls` returns nonzero and the `cat` is skipped — set internal `claims_count = 0` and SKIP steps 2.5 and 4.5. Otherwise, parse every markdown table that matches the schema in `<remediation_verification>` from `/tmp/remediation_claims.md`; record `claims_count` (total rows across all files) and `claims_files` (file count). Steps 2.5 and 4.5 will use the parsed claim list.
+
 **Step 1 — initialize the canonical file from the assembled body:**
 ```bash
 rm -rf deliverables/final_report.md && cp deliverables/final_report.assembled.md deliverables/final_report.md
@@ -282,9 +304,16 @@ For each finding from step 2, run:
 - `old_string`: the exact title line, e.g. `### INJ-VULN-001: SQL Injection on /api/doctors?q=`
 - `new_string`: that same title line + `\n\n` + the per-finding block from `<per_finding_enrichment>` (filled in for that finding).
 
+When filling `Status (Previous Run)` and `Status (Current Run)`, perform the cross-check defined in `<remediation_verification>` — compare the finding's signature (Vuln Type + normalized endpoint + parameter) against every parsed claim. Match → "regression"; no match with claims present → "no prior record"; `claims_count == 0` → "first run".
+
 If `old_string` is not unique (two findings share an identical title line, rare), include one extra line of surrounding context to disambiguate.
 
 This is ~20–30 small Edits, each a few hundred bytes — far below the 120 s API budget.
+
+**Step 3.5 — verify orphan claims (only if `claims_count > 0`).**
+For each parsed claim that did NOT match any current finding in step 3, run the per-Vuln-Type re-probe template from `<remediation_verification>`. One curl/Playwright call per claim, capped at `--max-time 10 --connect-timeout 3`. Append one row per claim to `/tmp/remediation_results.md` using the table format from `<remediation_verification>` section "Section 7.5 output format". Status values: `✅ Confirmed Fixed`, `❌ Still Vulnerable — regression`, or `⚠️ Cannot Verify` (with rationale).
+
+If `claims_count == 0`, SKIP this step entirely.
 
 **Step 4 — build the executive header at `/tmp/header.md`.**
 Use the `Write` tool with:
@@ -296,9 +325,14 @@ Total size ~3–6 KB — one fast `Write`.
 **Step 5 — build the post-findings appendices at `/tmp/footer.md`.**
 Use the `Write` tool with:
 - `file_path`: `/tmp/footer.md`
-- `content`: the body of `<footer_template>` with `{Finding IDs}` cells filled in for the heat map and the Conclusion / Appendix bodies completed.
+- `content`: the body of `<footer_template>` with `{Finding IDs}` cells filled in for the heat map and the Conclusion / Appendix bodies completed. When `claims_count == 0`, OMIT the `{section_7_5_placeholder}` line entirely (do not render an empty section).
 
 Total size ~3–5 KB — one fast `Write`.
+
+**Step 5.5 — splice section 7.5 into footer (only if `claims_count > 0`).**
+Compose the rendered "## 7.5 Remediation Verification" block per `<remediation_verification>` "Section 7.5 output format", using the rows from `/tmp/remediation_results.md` (orphan claims) PLUS rows for any claim that matched a current finding (status `❌ Still Vulnerable — regression`, evidence references the finding ID injected in step 3). Then `Edit` `/tmp/footer.md` to replace the `{section_7_5_placeholder}` line with this block.
+
+If `claims_count == 0`, SKIP this step entirely.
 
 **Step 6 — stitch header + enriched body + footer:**
 ```bash

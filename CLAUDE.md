@@ -13,10 +13,11 @@ cp .env.example .env && edit .env  # Set ANTHROPIC_API_KEY
 # Prepare input docs (REPO is a folder name inside ./repos/, not an absolute path).
 # For graybox/DAST runs, this folder holds read-only project documentation — NOT source code.
 # Required layout:
-#   ./repos/my-repo/docs/       — project overview, architecture, user flows (REQUIRED, ≥1 file)
-#   ./repos/my-repo/schemas/    — OpenAPI / GraphQL specs (optional)
-#   ./repos/my-repo/api/        — endpoint documentation (optional)
-#   ./repos/my-repo/auth/       — role matrix / permission model (optional)
+#   ./repos/my-repo/docs/         — project overview, architecture, user flows (REQUIRED, ≥1 file)
+#   ./repos/my-repo/schemas/      — OpenAPI / GraphQL specs (optional)
+#   ./repos/my-repo/api/          — endpoint documentation (optional)
+#   ./repos/my-repo/auth/         — role matrix / permission model (optional)
+#   ./repos/my-repo/remediation/  — DevOps fix claims to re-verify next run (optional; markdown tables — see prompts/shared/_remediation-verification.txt)
 mkdir -p ./repos/my-repo/docs && cp <your-docs>/*.md ./repos/my-repo/docs/
 
 # Run
@@ -67,7 +68,9 @@ Durable workflow orchestration with crash recovery, queryable progress, intellig
 
 Shannon treats `./repos/<name>/` as **read-only project documentation** — not source code. It is the agent's grounding material: overview, architecture, user flows, API specs, role matrix.
 
-Preflight (`src/services/preflight.ts`) fails fast if `./repos/<name>/docs/` is missing or empty. Optional subfolders (`schemas/`, `api/`, `auth/`) are not required but surfaced to agents when present. The `_project-docs.txt` shared partial (`prompts/shared/_project-docs.txt`) instructs agents to explore `{{REPO_PATH}}/` with Bash/Read and warns them not to write there.
+Preflight (`src/services/preflight.ts`) fails fast if `./repos/<name>/docs/` is missing or empty. Optional subfolders (`schemas/`, `api/`, `auth/`, `remediation/`) are not required but surfaced to agents when present. The `_project-docs.txt` shared partial (`prompts/shared/_project-docs.txt`) instructs agents to explore `{{REPO_PATH}}/` with Bash/Read and warns them not to write there.
+
+`remediation/` is consumed exclusively by the `report` agent: each markdown table inside lists prior-run findings that DevOps believes are fixed, the report agent re-tests every claim and renders the verdict into the final report. Schema and re-probe templates live in `prompts/shared/_remediation-verification.txt`. Folder absent or empty → no verification section is rendered (run behaves as a first-round assessment).
 
 ### Pipelines
 

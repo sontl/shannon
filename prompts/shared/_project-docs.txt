@@ -3,10 +3,11 @@
 Project documentation for the target application is available at {{REPO_PATH}}/. Treat this folder as **read-only input**: explore it with Bash (`ls`, `find`, `cat`) or the Read tool as needed to ground your analysis.
 
 Expected layout:
-- `{{REPO_PATH}}/docs/`      — project overview, architecture, user flows, business logic (required, always present)
-- `{{REPO_PATH}}/schemas/`   — OpenAPI / GraphQL / protobuf specs (optional)
-- `{{REPO_PATH}}/api/`       — endpoint documentation, auth flows, request/response examples (optional)
-- `{{REPO_PATH}}/auth/`      — role matrix, permission model, identity flows (optional)
+- `{{REPO_PATH}}/docs/`        — project overview, architecture, user flows, business logic (required, always present)
+- `{{REPO_PATH}}/schemas/`     — OpenAPI / GraphQL / protobuf specs (optional)
+- `{{REPO_PATH}}/api/`         — endpoint documentation, auth flows, request/response examples (optional)
+- `{{REPO_PATH}}/auth/`        — role matrix, permission model, identity flows (optional)
+- `{{REPO_PATH}}/remediation/` — DevOps fix claims for prior-run vulnerabilities; the `report` agent re-verifies each claim and renders results into the final report (optional; structured markdown tables — see `_remediation-verification.txt`)
 
 Detected subfolders for this run: {{DOCS_STRUCTURE}}
 

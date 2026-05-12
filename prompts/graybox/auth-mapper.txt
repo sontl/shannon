@@ -61,6 +61,30 @@ Execute all phases below in order.
 4. If the token is a JWT, decode the payload (base64 decode the middle segment) — record the claims structure, `exp` time, roles/permissions claims, and user ID field names. Do NOT attempt to forge tokens.
 5. Store the auth token for use in all subsequent phases.
 
+**Login Failure Protocol (hard stop — do not brute force):**
+You are testing authorization, not credential strength. The credentials in the Login Instructions are the only credentials you may use. You MUST NOT:
+- Guess alternate usernames, passwords, or password variants
+- Probe for "test"/"admin"/default accounts not listed in Login Instructions
+- Enumerate users from `/api/users` or discovery data to try as login
+
+You may retry the provided credentials up to **3 times total** only when the failure looks transient (network timeout, page-load race, captcha refresh). Any HTTP 401/403/422 with a clear "invalid credentials" response counts as a definitive failure — do not retry.
+
+If login does not succeed within 3 attempts, STOP and write a login-failure stub instead of proceeding to Phase 2+:
+
+1. `deliverables/auth/tokens_{{PERSONA_NAME}}.json`:
+   ```json
+   {
+     "persona": "{{PERSONA_NAME}}",
+     "role": "{{PERSONA_ROLE}}",
+     "login_failed": true,
+     "login_endpoint": "<URL attempted>",
+     "credentials_used": "<username from Login Instructions (mask password)>",
+     "last_response": { "status": 401, "body_excerpt": "..." }
+   }
+   ```
+2. `deliverables/auth/graybox_auth_map_{{PERSONA_NAME}}.md` — a one-page stub with sections: persona/role, login endpoint, credentials used (masked), 3 attempt responses, and a "Login failed — downstream phases skipped" note. Skip Phases 2–6.
+3. `save_deliverable` the stub map, then jump straight to the conclusion announcement.
+
 ## Phase 2: Unauthenticated Baseline Sweep
 
 Before testing with credentials, build a baseline of what is accessible without authentication:
@@ -176,11 +200,18 @@ After writing both files, call `save_deliverable` with `deliverable_type: "AUTH_
 </deliverable_instructions>
 
 <conclusion_trigger>
-**COMPLETION REQUIREMENTS:**
+**COMPLETION REQUIREMENTS (one of two paths):**
+
+*Success path — login worked:*
 1. All six phases completed (authentication through focus area deep-dive)
 2. Both `deliverables/auth/graybox_auth_map_{{PERSONA_NAME}}.md` and `deliverables/auth/tokens_{{PERSONA_NAME}}.json` written; map saved via `save_deliverable`
 3. Authenticated endpoint access matrix populated for all discovered endpoints
 4. IDOR and privilege escalation sections populated with evidence
+
+*Login-failure path — credentials in Login Instructions did not work after 3 attempts:*
+1. Stub `deliverables/auth/tokens_{{PERSONA_NAME}}.json` written with `"login_failed": true`
+2. Stub `deliverables/auth/graybox_auth_map_{{PERSONA_NAME}}.md` written and saved via `save_deliverable`
+3. Phases 2–6 skipped (do NOT attempt them without a valid token)
 
 Run the workspace hygiene cleanup gate (see `## Workspace hygiene` above) and remove any stray `.cjs` / `.js` / `.png` / `tmp*` files at the workspace root before announcing.
 Announce "**GRAYBOX AUTH MAP COMPLETE**" and stop. Do NOT add summaries or recaps after announcing.

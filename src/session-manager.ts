@@ -626,8 +626,10 @@ export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze
     const file = path.join(sourceDir, 'deliverables', 'graybox_discovery.md');
     return await fs.pathExists(file);
   },
-  'auth-mapper': async (sourceDir: string): Promise<boolean> => {
-    const file = path.join(sourceDir, 'deliverables', 'graybox_auth_map.md');
+  'auth-mapper': async (sourceDir: string, _logger: ActivityLogger, personaName?: string): Promise<boolean> => {
+    const file = personaName
+      ? path.join(sourceDir, 'deliverables', 'auth', `graybox_auth_map_${personaName}.md`)
+      : path.join(sourceDir, 'deliverables', 'graybox_auth_map.md');
     return await fs.pathExists(file);
   },
 
@@ -664,8 +666,10 @@ export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze
     const file = path.join(sourceDir, 'deliverables', 'mobile_discovery.md');
     return await fs.pathExists(file);
   },
-  'mobile-auth-mapper': async (sourceDir: string): Promise<boolean> => {
-    const file = path.join(sourceDir, 'deliverables', 'mobile_auth_map.md');
+  'mobile-auth-mapper': async (sourceDir: string, _logger: ActivityLogger, personaName?: string): Promise<boolean> => {
+    const file = personaName
+      ? path.join(sourceDir, 'deliverables', 'auth', `mobile_auth_map_${personaName}.md`)
+      : path.join(sourceDir, 'deliverables', 'mobile_auth_map.md');
     return await fs.pathExists(file);
   },
 
@@ -702,8 +706,10 @@ export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze
     const file = path.join(sourceDir, 'deliverables', 'api_discovery.md');
     return await fs.pathExists(file);
   },
-  'api-auth-mapper': async (sourceDir: string): Promise<boolean> => {
-    const file = path.join(sourceDir, 'deliverables', 'api_auth_map.md');
+  'api-auth-mapper': async (sourceDir: string, _logger: ActivityLogger, personaName?: string): Promise<boolean> => {
+    const file = personaName
+      ? path.join(sourceDir, 'deliverables', 'auth', `api_auth_map_${personaName}.md`)
+      : path.join(sourceDir, 'deliverables', 'api_auth_map.md');
     return await fs.pathExists(file);
   },
 

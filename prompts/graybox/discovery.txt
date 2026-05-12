@@ -35,9 +35,20 @@ Schema Hints:
 </starting_context>
 
 <available_tools>
-- **{{MCP_SERVER}} (Playwright Browser):** Navigate the app, intercept XHR/Fetch requests, extract links from the DOM, and observe network traffic.
+- **Playwright Browser tools** — call directly via the `mcp__{{MCP_SERVER}}__*` namespace
+  (e.g. `mcp__{{MCP_SERVER}}__browser_navigate`, `mcp__{{MCP_SERVER}}__browser_network_requests`,
+  `mcp__{{MCP_SERVER}}__browser_click`, `mcp__{{MCP_SERVER}}__browser_fill_form`,
+  `mcp__{{MCP_SERVER}}__browser_console_messages`). These are MCP tools, NOT a subagent —
+  do **not** call them through the `Task` tool. `{{MCP_SERVER}}` is just an MCP server
+  namespace string. Use these tools to navigate the app, intercept XHR/Fetch requests,
+  extract links from the DOM, and observe network traffic.
 - **Bash Tool:** Download JS bundles, run curl commands against candidate endpoints, and parse text with grep.
 - **save_deliverable:** Save your final map with deliverable type "DISCOVERY".
+
+If `mcp__{{MCP_SERVER}}__browser_navigate` is not listed in your available tool inventory,
+the browser MCP server failed to start — stop immediately, do **not** silently fall back
+to curl-only. Save a deliverable noting "browser MCP unavailable" so the operator can
+restart with a clean environment.
 </available_tools>
 
 <systematic_approach>

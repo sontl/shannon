@@ -109,7 +109,11 @@ export type AppiumAgent =
 
 import type { ActivityLogger } from './activity-logger.js';
 
-export type AgentValidator = (sourceDir: string, logger: ActivityLogger) => Promise<boolean>;
+export type AgentValidator = (
+  sourceDir: string,
+  logger: ActivityLogger,
+  personaName?: string
+) => Promise<boolean>;
 
 export type AgentStatus =
   | 'pending'

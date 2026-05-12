@@ -1,0 +1,121 @@
+<remediation_verification>
+**Remediation verification — re-test of DevOps fix claims (MANDATORY when claims exist).**
+
+DevOps may declare prior-run vulnerabilities as fixed by placing markdown tables under `{{REPO_PATH}}/remediation/`. As the report agent you re-verify each claim and surface results in the final report — both inside per-finding metadata and as a dedicated summary section.
+
+## Claim source
+
+- Folder: `{{REPO_PATH}}/remediation/` (optional). Read every `*.md` file inside.
+- If folder is absent or contains no `.md` files → set internal flag `claims_count = 0` and SKIP all remediation logic. Do not render section 7.5. Per-finding `Status (Previous Run)` falls back to `N/A — first run` and `Status (Current Run)` becomes `Open`.
+- If folder exists and has `.md` files → parse every markdown table that matches the schema below and concatenate rows. Free-form prose outside tables is for human reference only — ignore it.
+
+## Claim table schema (canonical)
+
+```markdown
+| Vuln ID (prior run) | Vuln Type | Endpoint / Parameter | Title (prior report) | Fix Date | Fix Reference | DevOps Notes |
+|---------------------|-----------|----------------------|----------------------|----------|---------------|--------------|
+```
+
+Required columns: `Vuln ID`, `Vuln Type`, `Endpoint / Parameter`, `Fix Reference`. Other columns are best-effort.
+
+## Vuln Type vocabulary (closed set)
+
+`SQLi`, `Command Injection`, `XSS-Reflected`, `XSS-Stored`, `XSS-DOM`, `SSRF`, `IDOR`, `BFLA`, `Privilege Escalation`, `Auth Bypass`, `Mass Assignment`, `CSRF`, `Path Traversal`, `SSTI`, `Sensitive Data Exposure`, `Rate Limit`, `Other`.
+
+If a claim uses a synonym or unfamiliar label, normalize to the nearest entry above. If no reasonable match, treat as `Other` and use the prior title plus DevOps notes to drive the re-probe.
+
+## Signature match (claim ↔ current finding)
+
+Two records match when ALL of the following hold:
+
+1. `Vuln Type` is identical (after normalization above).
+2. Endpoint matches AFTER path-param normalization: collapse numeric segments and UUIDs to `:id` (e.g. `/api/patients/42` and `/api/patients/9af3-...` both become `/api/patients/:id`). Keep query path verbatim.
+3. Parameter (query key, body field, or header name) is identical, OR the claim does not name a parameter and the endpoint is the discriminator.
+
+If any criterion fails → no match. Do not fuzzy-match titles.
+
+## Re-probe templates (per Vuln Type)
+
+For every claim that has NO matching current finding, run the matching template once. Use evidence from the prior report when present (in DevOps Notes) before falling back to canonical payloads. Cap each probe at 10 seconds via `--max-time 10 --connect-timeout 3`.
+
+- **SQLi (auth bypass / data extraction)** — replay prior payload if recorded, else canonical `'--`, `' OR '1'='1`, `') OR ('1'='1`. Verdict: `❌ Still Vulnerable` if response shows authenticated state (200 + token/JWT) or distinguishable success body; `✅ Confirmed Fixed` if 4xx or generic deny.
+- **Command Injection** — append `; id`, `&& id`, `` `id` `` to the parameter; verdict on `uid=` or `gid=` echoed in response.
+- **XSS-Reflected** — GET endpoint with payload `<svg/onload=alert(1)>` URL-encoded; grep response body for the literal payload (un-encoded). Encoded reflection is a fix; raw reflection is regression.
+- **XSS-Stored** — submit payload via the documented store path, then read it back via the documented read path. If second-order trigger requires a UI event the agent cannot drive headlessly → mark `⚠️ Cannot Verify` with rationale.
+- **XSS-DOM** — load page with payload in fragment / param; capture rendered DOM via Playwright; grep for the unescaped payload in script context.
+- **SSRF** — replay prior payload, else point parameter to `http://169.254.169.254/latest/meta-data/` and `http://127.0.0.1:22`. Verdict on cloud-metadata leak or banner echo.
+- **IDOR / BFLA** — log in as the lower-privilege persona and request the documented resource ID belonging to a higher-privilege persona (use `auth_map` deliverable for IDs). Verdict: `❌ Still Vulnerable` if 200 + foreign data; `✅ Confirmed Fixed` if 401/403/404 with no data.
+- **Privilege Escalation / Auth Bypass** — replay the exact prior request with stripped credentials, expired token, or cross-role token. Verdict on whether the privileged operation succeeds.
+- **Mass Assignment** — POST/PATCH the documented payload with the extra privileged field (e.g. `role`, `isAdmin`); verify in subsequent GET that the field changed.
+- **CSRF** — issue the state-changing request without anti-CSRF token / with mismatched origin; verdict on whether mutation succeeded.
+- **Path Traversal** — request `../../../../etc/passwd` (URL-encoded variants) and check for `root:x:0:0:` in the body.
+- **SSTI** — submit `{{7*7}}` (Jinja/Twig), `${7*7}` (Velocity/JSP); verdict on `49` echoed.
+- **Sensitive Data Exposure** — re-fetch the endpoint cited in the claim; grep for the leaked field name(s).
+- **Rate Limit** — fire 50 sequential requests with `xargs -P 8` and tally non-429 responses; > 80% success = `❌ Still Vulnerable`.
+- **Other** — derive a probe from the prior title + DevOps Notes; if none feasible → `⚠️ Cannot Verify`.
+
+If a re-probe needs an authenticated context, use the persona credentials documented in `auth_map` (or the `<authentication>` config block). Never store new credentials in deliverables.
+
+## Status enum (Current Run)
+
+Use exactly these labels in both the per-finding metadata block and section 7.5:
+
+- `❌ Still Vulnerable — regression` — claim exists AND current run reproduced the vuln (signature match), OR re-probe succeeded.
+- `✅ Confirmed Fixed` — claim exists, no signature-match in current run, AND re-probe negative.
+- `⚠️ Cannot Verify` — claim exists but re-probe is not feasible in this environment (e.g. stored XSS requires a human trigger). Always include a one-line rationale.
+- `Open` — finding present in current run with no prior claim.
+- `N/A — no prior record` — finding present in current run; remediation folder is populated but no claim covers this finding.
+- `N/A — first run` — folder absent / empty (`claims_count = 0`).
+
+## Per-finding metadata fields (apply to every finding in the report body)
+
+The metadata block under each finding title must use these two fields (REPLACE legacy `Status (First Round)` / `Status (Final Round)` — those names are deprecated):
+
+- `Status (Previous Run)` — what the prior run / DevOps claim said about this exact signature.
+  - Match found in remediation: `Open (DevOps claimed fixed on {Fix Date}, ref {Fix Reference})`.
+  - No match but folder populated: `N/A — no prior record`.
+  - Folder empty / absent: `N/A — first run`.
+- `Status (Current Run)` — verdict from this run, taken from the enum above.
+
+The `**Retest Result (Final Round):**` sub-block is renamed to `**Retest Result (Current Run):**`. Its `Date`, `Result`, and `Evidence` lines apply only when the finding has a matching prior claim or was actively re-probed.
+
+## Section 7.5 output format
+
+When `claims_count > 0`, append the following section to `/tmp/footer.md` immediately after the heat map (section 7) and before the Conclusion (section 8). When `claims_count == 0`, OMIT this section entirely (do not render an empty placeholder).
+
+```markdown
+## 7.5 Remediation Verification (Re-test of DevOps Fix Claims)
+
+Claims sourced from `repos/<project>/remediation/` ({N} claims, {M} files).
+
+| Vuln ID | Type | Endpoint | Fix Reference | Re-test Date | Status | Evidence |
+|---------|------|----------|---------------|--------------|--------|----------|
+| INJ-VULN-004 | SQLi | POST /api/auth/login | PR#142 | {today} | ✅ Confirmed Fixed | `curl -s … -d '{"username":"admin'\''--",…}'` → 401 with `{"error":"Invalid credentials"}` |
+| XSS-VULN-001 | XSS-Reflected | GET /search | commit abc123 | {today} | ❌ Still Vulnerable — regression | Payload `<svg/onload=alert(1)>` reflected unencoded; see Finding {new-ID} |
+| AUTHZ-VULN-014 | IDOR | GET /api/patients/:id | PR#147 | {today} | ⚠️ Cannot Verify | Persona B credential not provisioned in this run; record for next round |
+
+### Verification Summary
+
+- Total claims verified: {N}
+- ✅ Confirmed fixed: {count}
+- ❌ Regressions: {count}
+- ⚠️ Cannot verify: {count}
+
+{One short paragraph if there are regressions: name them and reference the corresponding finding IDs in section 4 — Findings.}
+```
+
+## Header dateline (Document Control table)
+
+When `claims_count > 0`, replace the static `Report Version | 1.0 — First Round` row with two rows that reflect the previous-run → current-run cadence:
+
+```
+| Report Version | {auto-incremented, default 1.1} |
+| Assessment Cadence | {Previous run date if recorded in claims, else "N/A"} → {today} |
+```
+
+Also append one row to the Document Control table when `claims_count > 0`:
+
+```
+| Remediation Claims Source | repos/{project}/remediation/ ({N} claims, {M} files) |
+```
+</remediation_verification>

@@ -278,6 +278,14 @@ export interface MessageDispatchDeps {
   progress: ProgressManager;
   auditLogger: AuditLogger;
   logger: ActivityLogger;
+  // Name of the MCP server this agent is assigned to (e.g. "playwright-agent1").
+  // When set, dispatchMessage fails fast on system/init if that server is not
+  // reported as connected, and the caller tracks how many `mcp__<name>__*` tool
+  // calls the agent makes — a zero count for a browser-required agent is
+  // a strong signal the MCP stack is broken.
+  expectedMcpServer?: string;
+  // Mutated on every `tool_use` whose name matches `mcp__<expectedMcpServer>__*`.
+  mcpToolCallCounter?: { count: number };
 }
 
 // Dispatches SDK messages to appropriate handlers and formatters
@@ -328,6 +336,38 @@ export async function dispatchMessage(
             logger.info(`MCP: ${mcpStatus}`);
           }
         }
+        // Fail fast when the agent's required MCP server never came up. Without
+        // this guard the agent runs to completion using only Bash/Read and saves
+        // a deliverable whose evidence quality is well below what the prompt
+        // demanded (e.g. discovery without any XHR capture). Retryable so
+        // Temporal kicks a fresh attempt — combined with the SingletonLock
+        // cleanup in claude-executor.buildMcpServers, the next spawn usually
+        // succeeds.
+        if (deps.expectedMcpServer && initMsg.mcp_servers) {
+          const entry = initMsg.mcp_servers.find(s => s.name === deps.expectedMcpServer);
+          if (!entry) {
+            return {
+              type: 'throw',
+              error: new PentestError(
+                `Required MCP server "${deps.expectedMcpServer}" missing from SDK registration. ` +
+                `Available: ${initMsg.mcp_servers.map(s => s.name).join(', ') || 'none'}`,
+                'tool',
+                true
+              ),
+            };
+          }
+          if (entry.status !== 'connected') {
+            return {
+              type: 'throw',
+              error: new PentestError(
+                `Required MCP server "${deps.expectedMcpServer}" failed to start ` +
+                `(status: ${entry.status}). Likely a stale Chromium SingletonLock or npx cache miss.`,
+                'tool',
+                true
+              ),
+            };
+          }
+        }
         // Return actual model for tracking in audit logs
         return { type: 'continue', model: actualModel };
       }
@@ -344,6 +384,13 @@ export async function dispatchMessage(
       const toolData = handleToolUseMessage(message as unknown as ToolUseMessage);
       outputLines(formatToolUseOutput(toolData.toolName, toolData.parameters));
       await auditLogger.logToolStart(toolData.toolName, toolData.parameters);
+      if (
+        deps.mcpToolCallCounter &&
+        deps.expectedMcpServer &&
+        toolData.toolName.startsWith(`mcp__${deps.expectedMcpServer}__`)
+      ) {
+        deps.mcpToolCallCounter.count++;
+      }
       return { type: 'continue' };
     }
 

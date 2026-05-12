@@ -107,8 +107,17 @@ async function buildMcpServers(
       const userDataDir = personaName
         ? path.join(sourceDir, '.runtime', 'browsers', personaName, mcpName)
         : `/tmp/${mcpName}`;
-      if (personaName) {
-        await fs.mkdirp(userDataDir);
+      await fs.mkdirp(userDataDir);
+
+      // Clean Chromium singleton artifacts from a previous killed attempt.
+      // When Temporal kills an activity mid-run (StartToClose / heartbeat
+      // timeout), the Playwright MCP subprocess dies but Chromium may leave
+      // behind SingletonLock/Cookie/Socket entries. The next spawn then sees
+      // an "already running" profile and refuses to launch — the SDK reports
+      // the MCP server as connected but every browser_* call fails, so the
+      // agent silently falls back to curl. Remove these markers up-front.
+      for (const marker of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
+        await fs.remove(path.join(userDataDir, marker)).catch(() => { /* best-effort */ });
       }
 
       const isDocker = process.env.SHANNON_DOCKER === 'true';
@@ -209,7 +218,8 @@ export async function validateAgentOutput(
   result: ClaudePromptResult,
   agentName: string | null,
   sourceDir: string,
-  logger: ActivityLogger
+  logger: ActivityLogger,
+  personaName?: string
 ): Promise<boolean> {
   logger.info(`Validating ${agentName} agent output`);
 
@@ -229,10 +239,10 @@ export async function validateAgentOutput(
       return true;
     }
 
-    logger.info(`Using validator for agent: ${agentName}`, { sourceDir });
+    logger.info(`Using validator for agent: ${agentName}`, { sourceDir, personaName });
 
     // Apply validation function
-    const validationResult = await validator(sourceDir, logger);
+    const validationResult = await validator(sourceDir, logger, personaName);
 
     if (validationResult) {
       logger.info('Validation passed: Required files/structure present');
@@ -279,6 +289,18 @@ export async function runClaudePrompt(
 
   // 3. Configure MCP servers
   const mcpServers = await buildMcpServers(sourceDir, agentName, logger, personaName);
+
+  // 3b. Resolve the browser/device MCP server this agent expects. Used by
+  // dispatchMessage to fail fast if SDK reports the server didn't connect,
+  // and to count `mcp__<name>__*` tool calls so a silent fallback to
+  // Bash/curl is caught after the run finishes.
+  const expectedMcpServer = agentName
+    ? (() => {
+        const promptTemplate = AGENTS[agentName as AgentName].promptTemplate;
+        const mapped = MCP_AGENT_MAPPING[promptTemplate as keyof typeof MCP_AGENT_MAPPING];
+        return mapped && mapped !== 'api-only' ? mapped : undefined;
+      })()
+    : undefined;
 
   // 4. Build env vars to pass to SDK subprocesses
   const sdkEnv: Record<string, string> = {
@@ -339,12 +361,18 @@ export async function runClaudePrompt(
 
   progress.start();
 
+  // Counter mutated by dispatchMessage on every matching tool_use.
+  const mcpToolCallCounter = { count: 0 };
+
   try {
     // 6. Process the message stream
     const messageLoopResult = await processMessageStream(
       fullPrompt,
       options,
-      { execContext, description, progress, auditLogger, logger },
+      {
+        execContext, description, progress, auditLogger, logger,
+        ...(expectedMcpServer && { expectedMcpServer, mcpToolCallCounter }),
+      },
       timer
     );
 
@@ -353,6 +381,20 @@ export async function runClaudePrompt(
     apiErrorDetected = messageLoopResult.apiErrorDetected;
     totalCost = messageLoopResult.cost;
     const model = messageLoopResult.model;
+
+    // Soft signal: agent was wired to a browser/device MCP but never called it
+    // once. The init guard already fails fast when the server fails to register;
+    // a zero count here means the server reported "connected" but the agent
+    // still drifted to Bash/curl — usually because Chromium can't actually
+    // launch despite a successful stdio handshake. Log as error so the
+    // workflow.log makes the regression obvious; the per-agent prompt is
+    // expected to refuse to save when its mandatory tools are missing.
+    if (expectedMcpServer && mcpToolCallCounter.count === 0) {
+      logger.error(
+        `Agent "${agentName}" never invoked any mcp__${expectedMcpServer}__* tool ` +
+        `despite being assigned that server. Deliverable evidence quality will be degraded.`
+      );
+    }
 
     // === SPENDING CAP SAFEGUARD ===
     // 7. Defense-in-depth: Detect spending cap that slipped through detectApiError().

@@ -285,7 +285,13 @@ export class AgentExecutionService {
     }
 
     // 8. Validate output (deliverables are under workspacePath/deliverables/)
-    const validationPassed = await validateAgentOutput(result, agentName, workspacePath, logger);
+    const validationPassed = await validateAgentOutput(
+      result,
+      agentName,
+      workspacePath,
+      logger,
+      input.personaName
+    );
     if (!validationPassed) {
       return this.failAgent(agentName, workspacePath, auditSession, logger, {
         attemptNumber, result,

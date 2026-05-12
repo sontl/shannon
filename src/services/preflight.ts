@@ -32,7 +32,7 @@ import type { PipelineTarget } from '../types/config.js';
 // === Repository Validation ===
 
 /** Optional input subfolders the pipeline knows about. */
-export const OPTIONAL_DOC_SUBDIRS = ['schemas', 'api', 'auth'] as const;
+export const OPTIONAL_DOC_SUBDIRS = ['schemas', 'api', 'auth', 'remediation'] as const;
 
 /** Result of scanning the input docs folder. */
 export interface DocsLayout {

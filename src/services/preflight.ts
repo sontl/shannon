@@ -12,8 +12,9 @@
  * time and API costs compared to failing mid-pipeline.
  *
  * Checks run sequentially, cheapest first:
- * 1. Repository path exists and contains a non-empty `docs/` folder
- *    (the repo is treated as read-only project documentation, not source code).
+ * 1. Repository path layout matches the active pipeline mode:
+ *    - graybox/mobile/api: require non-empty `{repoPath}/docs/` (read-only docs).
+ *    - whitebox:           require non-empty `{repoPath}/src/`  (read-only source code).
  * 2. Config file parses and validates (if provided)
  * 3. Credentials validate via Claude Agent SDK query (API key, OAuth, Bedrock, Vertex AI, or router mode)
  */
@@ -29,6 +30,9 @@ import { resolveModel } from '../ai/models.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { PipelineTarget } from '../types/config.js';
 
+/** Pipeline mode — determines whether the repo holds docs/ (graybox) or src/ (whitebox). */
+export type PipelineMode = 'whitebox' | 'graybox';
+
 // === Repository Validation ===
 
 /** Optional input subfolders the pipeline knows about. */
@@ -37,6 +41,9 @@ export const OPTIONAL_DOC_SUBDIRS = ['schemas', 'api', 'auth', 'remediation'] as
 /** Result of scanning the input docs folder. */
 export interface DocsLayout {
   hasDocs: boolean;
+  // True if {repoPath}/src/ exists and is non-empty. Required for whitebox mode,
+  // optional and informational otherwise (graybox/mobile/api may also ship source).
+  hasSrc: boolean;
   presentOptional: string[];
   missingOptional: string[];
 }
@@ -60,13 +67,15 @@ async function isDirectory(p: string): Promise<boolean> {
 }
 
 /**
- * Inspect `{repoPath}/docs/`, `{repoPath}/schemas/`, `{repoPath}/api/`,
- * `{repoPath}/auth/` and return which optional subfolders exist.
- * Exposed so callers can surface the layout to agents.
+ * Inspect `{repoPath}/docs/`, `{repoPath}/src/`, `{repoPath}/schemas/`,
+ * `{repoPath}/api/`, `{repoPath}/auth/` and return which optional subfolders
+ * exist. Exposed so callers can surface the layout to agents.
  */
 export async function scanDocsLayout(repoPath: string): Promise<DocsLayout> {
   const docsDir = `${repoPath}/docs`;
+  const srcDir = `${repoPath}/src`;
   const hasDocs = (await isDirectory(docsDir)) && (await hasAtLeastOneEntry(docsDir));
+  const hasSrc = (await isDirectory(srcDir)) && (await hasAtLeastOneEntry(srcDir));
 
   const presentOptional: string[] = [];
   const missingOptional: string[] = [];
@@ -78,14 +87,15 @@ export async function scanDocsLayout(repoPath: string): Promise<DocsLayout> {
     }
   }
 
-  return { hasDocs, presentOptional, missingOptional };
+  return { hasDocs, hasSrc, presentOptional, missingOptional };
 }
 
 async function validateRepo(
   repoPath: string,
-  logger: ActivityLogger
+  logger: ActivityLogger,
+  mode: PipelineMode
 ): Promise<Result<void, PentestError>> {
-  logger.info('Checking input docs path...', { repoPath });
+  logger.info('Checking input repo path...', { repoPath, mode });
 
   // 1. Check repo directory exists
   try {
@@ -113,20 +123,49 @@ async function validateRepo(
     );
   }
 
-  // 2. Check docs/ exists and is non-empty (mandatory project documentation)
   const layout = await scanDocsLayout(repoPath);
-  if (!layout.hasDocs) {
-    return err(
-      new PentestError(
-        `Input docs folder missing or empty: ${repoPath}/docs/. ` +
-        `The project docs folder must contain at least one file ` +
-        `(overview, architecture, user flows, or business logic).`,
-        'config',
-        false,
-        { repoPath, expected: `${repoPath}/docs/` },
-        ErrorCode.REPO_NOT_FOUND
-      )
-    );
+
+  // 2. Mode-specific requirement
+  if (mode === 'whitebox') {
+    if (!layout.hasSrc) {
+      return err(
+        new PentestError(
+          `Whitebox mode requires source code at ${repoPath}/src/, but the folder is missing or empty. ` +
+          `Place the target application's source tree under ${repoPath}/src/ ` +
+          `(read-only; agents never write back).`,
+          'config',
+          false,
+          { repoPath, expected: `${repoPath}/src/`, mode },
+          ErrorCode.REPO_NOT_FOUND
+        )
+      );
+    }
+    if (!layout.hasDocs) {
+      logger.warn(
+        `Whitebox mode: ${repoPath}/docs/ is missing — agents will rely on source code only. ` +
+        `Add docs/ for architecture/overview context.`
+      );
+    }
+  } else {
+    // graybox: docs/ is mandatory, src/ is optional context.
+    if (!layout.hasDocs) {
+      return err(
+        new PentestError(
+          `Input docs folder missing or empty: ${repoPath}/docs/. ` +
+          `The project docs folder must contain at least one file ` +
+          `(overview, architecture, user flows, or business logic).`,
+          'config',
+          false,
+          { repoPath, expected: `${repoPath}/docs/`, mode },
+          ErrorCode.REPO_NOT_FOUND
+        )
+      );
+    }
+    if (layout.hasSrc) {
+      logger.info(
+        `Graybox mode: source code detected at ${repoPath}/src/ — surfaced to agents as optional context.`
+      );
+    }
   }
 
   // 3. Warn about optional subfolders that are missing (does not fail preflight)
@@ -136,10 +175,11 @@ async function validateRepo(
       `Testing will proceed without them.`
     );
   }
-  logger.info('Input docs OK', {
-    repoPath,
-    present: ['docs', ...layout.presentOptional],
-  });
+  const present: string[] = [];
+  if (layout.hasDocs) present.push('docs');
+  if (layout.hasSrc) present.push('src');
+  present.push(...layout.presentOptional);
+  logger.info('Input repo OK', { repoPath, mode, present });
   return ok(undefined);
 }
 
@@ -424,7 +464,9 @@ async function validateMobilePrerequisites(
 /**
  * Run all preflight checks sequentially (cheapest first).
  *
- * 1. Repository docs folder exists and contains non-empty `docs/` (skipped for mobile/api)
+ * 1. Repository folder layout matches `pipelineMode` (skipped for mobile/api):
+ *    - whitebox → non-empty `{repoPath}/src/`
+ *    - graybox  → non-empty `{repoPath}/docs/`
  * 2. Config file parses and validates (if configPath provided)
  * 3. Mobile prerequisites (if target is mobile)
  * 4. Credentials validate (API key, OAuth, or router mode)
@@ -435,11 +477,12 @@ export async function runPreflightChecks(
   repoPath: string,
   configPath: string | undefined,
   logger: ActivityLogger,
-  target: PipelineTarget = 'web'
+  target: PipelineTarget = 'web',
+  pipelineMode: PipelineMode = 'graybox'
 ): Promise<Result<void, PentestError>> {
   // 1. Repository check (skipped for mobile/api — workspace is auto-created)
   if (target !== 'mobile' && target !== 'api') {
-    const repoResult = await validateRepo(repoPath, logger);
+    const repoResult = await validateRepo(repoPath, logger, pipelineMode);
     if (!repoResult.ok) {
       return repoResult;
     }

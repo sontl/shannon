@@ -16,6 +16,8 @@ Success criterion: A complete, code-backed analysis of every potential authentic
 @include(shared/_target.txt)
 </target>
 
+@include(shared/_project-docs.txt)
+
 <rules>
 @include(shared/_rules.txt)
 </rules>

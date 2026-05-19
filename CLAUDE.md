@@ -12,13 +12,15 @@ cp .env.example .env && edit .env  # Set ANTHROPIC_API_KEY
 
 # Prepare input docs (REPO is a folder name inside ./repos/, not an absolute path).
 # For graybox/DAST runs, this folder holds read-only project documentation — NOT source code.
-# Required layout:
-#   ./repos/my-repo/docs/         — project overview, architecture, user flows (REQUIRED, ≥1 file)
+# Required layout (preflight enforces docs/ for graybox/mobile/api, src/ for whitebox):
+#   ./repos/my-repo/docs/         — project overview, architecture, user flows (REQUIRED for graybox/mobile/api; optional context for whitebox)
+#   ./repos/my-repo/src/          — read-only source tree (REQUIRED for whitebox; optional context for other modes)
 #   ./repos/my-repo/schemas/      — OpenAPI / GraphQL specs (optional)
 #   ./repos/my-repo/api/          — endpoint documentation (optional)
 #   ./repos/my-repo/auth/         — role matrix / permission model (optional)
 #   ./repos/my-repo/remediation/  — DevOps fix claims to re-verify next run (optional; markdown tables — see prompts/shared/_remediation-verification.txt)
 mkdir -p ./repos/my-repo/docs && cp <your-docs>/*.md ./repos/my-repo/docs/
+# Whitebox: also populate ./repos/my-repo/src/ with the read-only source tree (e.g. `cp -R <your-src>/* ./repos/my-repo/src/`)
 
 # Run
 ./shannon start URL=<url> REPO=my-repo
@@ -82,7 +84,7 @@ Preflight (`src/services/preflight.ts`) fails fast if `./repos/<name>/docs/` is 
 
 Each tier: 2 discovery phases, 5 parallel vuln analysis agents, 5 parallel exploit agents (conditional on non-empty exploitation queue), and a report agent. Agent sets live in `src/types/agents.ts` as `GRAYBOX_AGENTS`, `MOBILE_GRAYBOX_AGENTS`, `API_GRAYBOX_AGENTS`.
 
-**Whitebox (reference only)** — The original Shannon whitebox prompts (`prompts/pre-recon-code.txt`, `recon.txt`, `vuln-*.txt`, `exploit-*.txt`, `report-executive.txt`) and `WHITEBOX_AGENTS` agent set remain in the tree as the **gold-standard template** for prompt structure and rigor. They should be used as a reference when enriching graybox/mobile/api prompts with methodology, proof-obligation, false-positive, and evidence-quality sections. Runtime invocation of whitebox is being phased out.
+**Whitebox** (`pipeline.mode: whitebox`) — Source-code analysis. Prompts (`prompts/pre-recon-code.txt`, `recon.txt`, `vuln-*.txt`, `exploit-*.txt`, `report-executive.txt`) and the `WHITEBOX_AGENTS` set run against `{{SRC_PATH}} = {repoPath}/src/` (read-only). Phase sequence: pre-recon → recon → vuln×5 → exploit×5 → report. These prompts also serve as the **gold-standard reference** for methodology/proof-obligation/evidence-quality sections in the graybox tiers.
 
 ### Supporting Systems
 - **Configuration** — YAML configs in `configs/` with JSON Schema validation (`config-schema.json`). Supports auth settings, MFA/TOTP, and per-app testing parameters

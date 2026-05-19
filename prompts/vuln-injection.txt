@@ -16,6 +16,8 @@ Success criterion: Complete source-to-sink traces detailing path, sanitizers, si
 @include(shared/_target.txt)
 </target>
 
+@include(shared/_project-docs.txt)
+
 <rules>
 @include(shared/_rules.txt)
 </rules>

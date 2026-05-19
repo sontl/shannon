@@ -407,16 +407,8 @@ async function loadPipelineConfig(configPath: string | undefined): Promise<Loade
       if (raw.max_concurrent_pipelines !== undefined) {
         pipelineConfig.max_concurrent_pipelines = Number(raw.max_concurrent_pipelines);
       }
-      // DISABLED: whitebox runtime deprecated — coerce any whitebox config to graybox.
       if (raw.mode !== undefined) {
-        if (raw.mode === 'whitebox') {
-          console.warn(
-            `Warning: pipeline.mode="whitebox" is disabled. Coercing to "graybox".`
-          );
-          pipelineConfig.mode = 'graybox';
-        } else {
-          pipelineConfig.mode = raw.mode;
-        }
+        pipelineConfig.mode = raw.mode;
       } else {
         pipelineConfig.mode = 'graybox';
       }

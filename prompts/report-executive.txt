@@ -21,8 +21,11 @@ IMPORTANT: You are MODIFYING an existing file, not creating a new one.
 
 <target>
 URL: {{WEB_URL}}
-Repository: {{GITHUB_URL}}
+Repository: {{REPO_PATH}}
+Source code: {{SRC_PATH}}
 </target>
+
+@include(shared/_project-docs.txt)
 
 <context>
 Authentication Context:

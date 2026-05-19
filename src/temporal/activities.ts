@@ -235,60 +235,58 @@ async function runAgentActivity(
   }
 }
 
-// DISABLED: whitebox activity exports — runtime deprecated. Kept as reference.
-// Uncomment (and re-enable WHITEBOX_AGENTS in src/types/agents.ts plus the
-// corresponding AGENTS entries in src/session-manager.ts) to restore.
-// export async function runPreReconAgent(input: ActivityInput): Promise<AgentMetrics> {
-//   return runAgentActivity('pre-recon', input);
-// }
-//
-// export async function runReconAgent(input: ActivityInput): Promise<AgentMetrics> {
-//   return runAgentActivity('recon', input);
-// }
-//
-// export async function runInjectionVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
-//   return runAgentActivity('injection-vuln', input);
-// }
-//
-// export async function runXssVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
-//   return runAgentActivity('xss-vuln', input);
-// }
-//
-// export async function runAuthVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
-//   return runAgentActivity('auth-vuln', input);
-// }
-//
-// export async function runSsrfVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
-//   return runAgentActivity('ssrf-vuln', input);
-// }
-//
-// export async function runAuthzVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
-//   return runAgentActivity('authz-vuln', input);
-// }
-//
-// export async function runInjectionExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
-//   return runAgentActivity('injection-exploit', input);
-// }
-//
-// export async function runXssExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
-//   return runAgentActivity('xss-exploit', input);
-// }
-//
-// export async function runAuthExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
-//   return runAgentActivity('auth-exploit', input);
-// }
-//
-// export async function runSsrfExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
-//   return runAgentActivity('ssrf-exploit', input);
-// }
-//
-// export async function runAuthzExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
-//   return runAgentActivity('authz-exploit', input);
-// }
-//
-// export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics> {
-//   return runAgentActivity('report', input);
-// }
+// === Whitebox activities ===
+export async function runPreReconAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('pre-recon', input);
+}
+
+export async function runReconAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('recon', input);
+}
+
+export async function runInjectionVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('injection-vuln', input);
+}
+
+export async function runXssVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('xss-vuln', input);
+}
+
+export async function runAuthVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('auth-vuln', input);
+}
+
+export async function runSsrfVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('ssrf-vuln', input);
+}
+
+export async function runAuthzVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('authz-vuln', input);
+}
+
+export async function runInjectionExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('injection-exploit', input);
+}
+
+export async function runXssExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('xss-exploit', input);
+}
+
+export async function runAuthExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('auth-exploit', input);
+}
+
+export async function runSsrfExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('ssrf-exploit', input);
+}
+
+export async function runAuthzExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('authz-exploit', input);
+}
+
+export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('report', input);
+}
 
 // Gray-box activities
 export async function runDiscoveryAgent(input: ActivityInput): Promise<AgentMetrics> {
@@ -474,7 +472,13 @@ export async function runPreflightValidation(input: ActivityInput): Promise<void
     const logger = createActivityLogger();
     logger.info('Running preflight validation...', { attempt: attemptNumber });
 
-    const result = await runPreflightChecks(input.repoPath, input.configPath, logger, input.pipelineTarget || 'web');
+    const result = await runPreflightChecks(
+      input.repoPath,
+      input.configPath,
+      logger,
+      input.pipelineTarget || 'web',
+      input.pipelineMode || 'graybox'
+    );
 
     if (isErr(result)) {
       const classified = classifyErrorForTemporal(result.error);
@@ -521,7 +525,6 @@ export async function runPreflightValidation(input: ActivityInput): Promise<void
  * Assemble the final report by concatenating exploitation evidence files.
  */
 export async function assembleReportActivity(input: ActivityInput): Promise<void> {
-  // DISABLED: whitebox runtime deprecated — default mode is now 'graybox'.
   const { workspacePath, pipelineMode = 'graybox', pipelineTarget = 'web' } = input;
   const reportMode = pipelineTarget === 'api'
     ? 'api' as const

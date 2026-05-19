@@ -8,7 +8,11 @@ Your goal is to create a comprehensive, structured map of the application's atta
 
 <starting_context>
 Your analysis must begin by reading and fully comprehending the initial intelligence report located at `deliverables/pre_recon_deliverable.md`. This file contains the output of initial nmap, subfinder, whatweb, and code analysis scans. This is your only starting information.
+
+The target application source code is mounted **read-only** at `{{SRC_PATH}}/`. Delegate all code reading/searching to Task agents anchored at that path — never write back to it.
 </starting_context>
+
+@include(shared/_project-docs.txt)
 
 <target>
 URL: {{WEB_URL}}

@@ -11,106 +11,101 @@ import type { ActivityLogger } from './types/activity-logger.js';
 
 // Agent definitions according to PRD
 // NOTE: deliverableFilename values must match mcp-server/src/types/deliverables.ts:DELIVERABLE_FILENAMES
-//
-// DISABLED: whitebox runtime deprecated. The 13 whitebox agent entries
-// (pre-recon, recon, injection-vuln, xss-vuln, auth-vuln, ssrf-vuln, authz-vuln,
-// injection-exploit, xss-exploit, auth-exploit, ssrf-exploit, authz-exploit, report)
-// have been commented out below. Kept as reference — uncomment (and re-enable
-// WHITEBOX_AGENTS in src/types/agents.ts) to restore.
 export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freeze({
-  // 'pre-recon': {
-  //   name: 'pre-recon',
-  //   displayName: 'Pre-recon agent',
-  //   prerequisites: [],
-  //   promptTemplate: 'pre-recon-code',
-  //   deliverableFilename: 'code_analysis_deliverable.md',
-  //   modelTier: 'large',
-  // },
-  // 'recon': {
-  //   name: 'recon',
-  //   displayName: 'Recon agent',
-  //   prerequisites: ['pre-recon'],
-  //   promptTemplate: 'recon',
-  //   deliverableFilename: 'recon_deliverable.md',
-  // },
-  // 'injection-vuln': {
-  //   name: 'injection-vuln',
-  //   displayName: 'Injection vuln agent',
-  //   prerequisites: ['recon'],
-  //   promptTemplate: 'vuln-injection',
-  //   deliverableFilename: 'injection_analysis_deliverable.md',
-  // },
-  // 'xss-vuln': {
-  //   name: 'xss-vuln',
-  //   displayName: 'XSS vuln agent',
-  //   prerequisites: ['recon'],
-  //   promptTemplate: 'vuln-xss',
-  //   deliverableFilename: 'xss_analysis_deliverable.md',
-  // },
-  // 'auth-vuln': {
-  //   name: 'auth-vuln',
-  //   displayName: 'Auth vuln agent',
-  //   prerequisites: ['recon'],
-  //   promptTemplate: 'vuln-auth',
-  //   deliverableFilename: 'auth_analysis_deliverable.md',
-  // },
-  // 'ssrf-vuln': {
-  //   name: 'ssrf-vuln',
-  //   displayName: 'SSRF vuln agent',
-  //   prerequisites: ['recon'],
-  //   promptTemplate: 'vuln-ssrf',
-  //   deliverableFilename: 'ssrf_analysis_deliverable.md',
-  // },
-  // 'authz-vuln': {
-  //   name: 'authz-vuln',
-  //   displayName: 'Authz vuln agent',
-  //   prerequisites: ['recon'],
-  //   promptTemplate: 'vuln-authz',
-  //   deliverableFilename: 'authz_analysis_deliverable.md',
-  // },
-  // 'injection-exploit': {
-  //   name: 'injection-exploit',
-  //   displayName: 'Injection exploit agent',
-  //   prerequisites: ['injection-vuln'],
-  //   promptTemplate: 'exploit-injection',
-  //   deliverableFilename: 'injection_exploitation_evidence.md',
-  // },
-  // 'xss-exploit': {
-  //   name: 'xss-exploit',
-  //   displayName: 'XSS exploit agent',
-  //   prerequisites: ['xss-vuln'],
-  //   promptTemplate: 'exploit-xss',
-  //   deliverableFilename: 'xss_exploitation_evidence.md',
-  // },
-  // 'auth-exploit': {
-  //   name: 'auth-exploit',
-  //   displayName: 'Auth exploit agent',
-  //   prerequisites: ['auth-vuln'],
-  //   promptTemplate: 'exploit-auth',
-  //   deliverableFilename: 'auth_exploitation_evidence.md',
-  // },
-  // 'ssrf-exploit': {
-  //   name: 'ssrf-exploit',
-  //   displayName: 'SSRF exploit agent',
-  //   prerequisites: ['ssrf-vuln'],
-  //   promptTemplate: 'exploit-ssrf',
-  //   deliverableFilename: 'ssrf_exploitation_evidence.md',
-  // },
-  // 'authz-exploit': {
-  //   name: 'authz-exploit',
-  //   displayName: 'Authz exploit agent',
-  //   prerequisites: ['authz-vuln'],
-  //   promptTemplate: 'exploit-authz',
-  //   deliverableFilename: 'authz_exploitation_evidence.md',
-  // },
-  // 'report': {
-  //   name: 'report',
-  //   displayName: 'Report agent',
-  //   prerequisites: ['injection-exploit', 'xss-exploit', 'auth-exploit', 'ssrf-exploit', 'authz-exploit'],
-  //   promptTemplate: 'report-executive',
-  //   deliverableFilename: 'final_report.md',
-  //   modelTier: 'small',
-  // },
+  // === Whitebox Agents (source-code analysis at {{SRC_PATH}}) ===
+  'pre-recon': {
+    name: 'pre-recon',
+    displayName: 'Pre-recon agent',
+    prerequisites: [],
+    promptTemplate: 'pre-recon-code',
+    deliverableFilename: 'code_analysis_deliverable.md',
+    modelTier: 'large',
+  },
+  'recon': {
+    name: 'recon',
+    displayName: 'Recon agent',
+    prerequisites: ['pre-recon'],
+    promptTemplate: 'recon',
+    deliverableFilename: 'recon_deliverable.md',
+  },
+  'injection-vuln': {
+    name: 'injection-vuln',
+    displayName: 'Injection vuln agent',
+    prerequisites: ['recon'],
+    promptTemplate: 'vuln-injection',
+    deliverableFilename: 'injection_analysis_deliverable.md',
+  },
+  'xss-vuln': {
+    name: 'xss-vuln',
+    displayName: 'XSS vuln agent',
+    prerequisites: ['recon'],
+    promptTemplate: 'vuln-xss',
+    deliverableFilename: 'xss_analysis_deliverable.md',
+  },
+  'auth-vuln': {
+    name: 'auth-vuln',
+    displayName: 'Auth vuln agent',
+    prerequisites: ['recon'],
+    promptTemplate: 'vuln-auth',
+    deliverableFilename: 'auth_analysis_deliverable.md',
+  },
+  'ssrf-vuln': {
+    name: 'ssrf-vuln',
+    displayName: 'SSRF vuln agent',
+    prerequisites: ['recon'],
+    promptTemplate: 'vuln-ssrf',
+    deliverableFilename: 'ssrf_analysis_deliverable.md',
+  },
+  'authz-vuln': {
+    name: 'authz-vuln',
+    displayName: 'Authz vuln agent',
+    prerequisites: ['recon'],
+    promptTemplate: 'vuln-authz',
+    deliverableFilename: 'authz_analysis_deliverable.md',
+  },
+  'injection-exploit': {
+    name: 'injection-exploit',
+    displayName: 'Injection exploit agent',
+    prerequisites: ['injection-vuln'],
+    promptTemplate: 'exploit-injection',
+    deliverableFilename: 'injection_exploitation_evidence.md',
+  },
+  'xss-exploit': {
+    name: 'xss-exploit',
+    displayName: 'XSS exploit agent',
+    prerequisites: ['xss-vuln'],
+    promptTemplate: 'exploit-xss',
+    deliverableFilename: 'xss_exploitation_evidence.md',
+  },
+  'auth-exploit': {
+    name: 'auth-exploit',
+    displayName: 'Auth exploit agent',
+    prerequisites: ['auth-vuln'],
+    promptTemplate: 'exploit-auth',
+    deliverableFilename: 'auth_exploitation_evidence.md',
+  },
+  'ssrf-exploit': {
+    name: 'ssrf-exploit',
+    displayName: 'SSRF exploit agent',
+    prerequisites: ['ssrf-vuln'],
+    promptTemplate: 'exploit-ssrf',
+    deliverableFilename: 'ssrf_exploitation_evidence.md',
+  },
+  'authz-exploit': {
+    name: 'authz-exploit',
+    displayName: 'Authz exploit agent',
+    prerequisites: ['authz-vuln'],
+    promptTemplate: 'exploit-authz',
+    deliverableFilename: 'authz_exploitation_evidence.md',
+  },
+  'report': {
+    name: 'report',
+    displayName: 'Report agent',
+    prerequisites: ['injection-exploit', 'xss-exploit', 'auth-exploit', 'ssrf-exploit', 'authz-exploit'],
+    promptTemplate: 'report-executive',
+    deliverableFilename: 'final_report.md',
+    modelTier: 'small',
+  },
   'discovery': {
     name: 'discovery',
     displayName: 'Gray-box Discovery Agent',
@@ -409,21 +404,21 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
 export type PhaseName = 'pre-recon' | 'recon' | 'discovery' | 'auth-mapping' | 'vulnerability-analysis' | 'exploitation' | 'reporting';
 
 // Map agents to their corresponding phases (single source of truth)
-// DISABLED: whitebox runtime deprecated. See AGENTS record above for details.
 export const AGENT_PHASE_MAP: Readonly<Record<AgentName, PhaseName>> = Object.freeze({
-  // 'pre-recon': 'pre-recon',
-  // 'recon': 'recon',
-  // 'injection-vuln': 'vulnerability-analysis',
-  // 'xss-vuln': 'vulnerability-analysis',
-  // 'auth-vuln': 'vulnerability-analysis',
-  // 'authz-vuln': 'vulnerability-analysis',
-  // 'ssrf-vuln': 'vulnerability-analysis',
-  // 'injection-exploit': 'exploitation',
-  // 'xss-exploit': 'exploitation',
-  // 'auth-exploit': 'exploitation',
-  // 'authz-exploit': 'exploitation',
-  // 'ssrf-exploit': 'exploitation',
-  // 'report': 'reporting',
+  // Whitebox agents
+  'pre-recon': 'pre-recon',
+  'recon': 'recon',
+  'injection-vuln': 'vulnerability-analysis',
+  'xss-vuln': 'vulnerability-analysis',
+  'auth-vuln': 'vulnerability-analysis',
+  'authz-vuln': 'vulnerability-analysis',
+  'ssrf-vuln': 'vulnerability-analysis',
+  'injection-exploit': 'exploitation',
+  'xss-exploit': 'exploitation',
+  'auth-exploit': 'exploitation',
+  'authz-exploit': 'exploitation',
+  'ssrf-exploit': 'exploitation',
+  'report': 'reporting',
   'discovery': 'discovery',
   'auth-mapper': 'auth-mapping',
   'graybox-injection-vuln': 'vulnerability-analysis',
@@ -493,32 +488,31 @@ function createExploitValidator(vulnType: VulnType): AgentValidator {
 
 // MCP agent mapping - assigns each agent to a specific Playwright instance to prevent conflicts
 // Keys are promptTemplate values from AGENTS registry
-// DISABLED: whitebox runtime deprecated. See AGENTS record above for details.
 export const MCP_AGENT_MAPPING: Record<string, PlaywrightAgent | AppiumAgent | ApiAgent> = Object.freeze({
-  // // Phase 1: Pre-reconnaissance (actual prompt name is 'pre-recon-code')
-  // // NOTE: Pre-recon is pure code analysis and doesn't use browser automation,
-  // // but assigning MCP server anyway for consistency and future extensibility
-  // 'pre-recon-code': 'playwright-agent1',
-  //
-  // // Phase 2: Reconnaissance (actual prompt name is 'recon')
-  // recon: 'playwright-agent2',
-  //
-  // // Phase 3: Vulnerability Analysis (5 parallel agents)
-  // 'vuln-injection': 'playwright-agent1',
-  // 'vuln-xss': 'playwright-agent2',
-  // 'vuln-auth': 'playwright-agent3',
-  // 'vuln-ssrf': 'playwright-agent4',
-  // 'vuln-authz': 'playwright-agent5',
-  //
-  // // Phase 4: Exploitation (5 parallel agents - same as vuln counterparts)
-  // 'exploit-injection': 'playwright-agent1',
-  // 'exploit-xss': 'playwright-agent2',
-  // 'exploit-auth': 'playwright-agent3',
-  // 'exploit-ssrf': 'playwright-agent4',
-  // 'exploit-authz': 'playwright-agent5',
-  //
-  // // Phase 5: Reporting (actual prompt name is 'report-executive')
-  // 'report-executive': 'playwright-agent3',
+  // Whitebox Phase 1: Pre-reconnaissance (actual prompt name is 'pre-recon-code')
+  // NOTE: Pre-recon is pure code analysis and doesn't use browser automation,
+  // but assigning MCP server anyway for consistency and future extensibility
+  'pre-recon-code': 'playwright-agent1',
+
+  // Whitebox Phase 2: Reconnaissance
+  recon: 'playwright-agent2',
+
+  // Whitebox Phase 3: Vulnerability Analysis (5 parallel agents)
+  'vuln-injection': 'playwright-agent1',
+  'vuln-xss': 'playwright-agent2',
+  'vuln-auth': 'playwright-agent3',
+  'vuln-ssrf': 'playwright-agent4',
+  'vuln-authz': 'playwright-agent5',
+
+  // Whitebox Phase 4: Exploitation (5 parallel agents - same as vuln counterparts)
+  'exploit-injection': 'playwright-agent1',
+  'exploit-xss': 'playwright-agent2',
+  'exploit-auth': 'playwright-agent3',
+  'exploit-ssrf': 'playwright-agent4',
+  'exploit-authz': 'playwright-agent5',
+
+  // Whitebox Phase 5: Reporting (actual prompt name is 'report-executive')
+  'report-executive': 'playwright-agent3',
 
   // Gray-box discovery and auth mapping
   'graybox/discovery': 'playwright-agent1',
@@ -579,47 +573,46 @@ export const MCP_AGENT_MAPPING: Record<string, PlaywrightAgent | AppiumAgent | A
 });
 
 // Direct agent-to-validator mapping - much simpler than pattern matching
-// DISABLED: whitebox runtime deprecated. See AGENTS record above for details.
 export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze({
-  // // Pre-reconnaissance agent - validates the code analysis deliverable created by the agent
-  // 'pre-recon': async (sourceDir: string): Promise<boolean> => {
-  //   const codeAnalysisFile = path.join(sourceDir, 'deliverables', 'code_analysis_deliverable.md');
-  //   return await fs.pathExists(codeAnalysisFile);
-  // },
-  //
-  // // Reconnaissance agent
-  // recon: async (sourceDir: string): Promise<boolean> => {
-  //   const reconFile = path.join(sourceDir, 'deliverables', 'recon_deliverable.md');
-  //   return await fs.pathExists(reconFile);
-  // },
-  //
-  // // Vulnerability analysis agents
-  // 'injection-vuln': createVulnValidator('injection'),
-  // 'xss-vuln': createVulnValidator('xss'),
-  // 'auth-vuln': createVulnValidator('auth'),
-  // 'ssrf-vuln': createVulnValidator('ssrf'),
-  // 'authz-vuln': createVulnValidator('authz'),
-  //
-  // // Exploitation agents
-  // 'injection-exploit': createExploitValidator('injection'),
-  // 'xss-exploit': createExploitValidator('xss'),
-  // 'auth-exploit': createExploitValidator('auth'),
-  // 'ssrf-exploit': createExploitValidator('ssrf'),
-  // 'authz-exploit': createExploitValidator('authz'),
-  //
-  // // Executive report agent
-  // report: async (sourceDir: string, logger: ActivityLogger): Promise<boolean> => {
-  //   const reportFile = path.join(
-  //     sourceDir,
-  //     'deliverables',
-  //     'final_report.md'
-  //   );
-  //   const reportExists = await fs.pathExists(reportFile);
-  //   if (!reportExists) {
-  //     logger.error('Missing required deliverable: final_report.md');
-  //   }
-  //   return reportExists;
-  // },
+  // Whitebox: Pre-reconnaissance agent - validates the code analysis deliverable
+  'pre-recon': async (sourceDir: string): Promise<boolean> => {
+    const codeAnalysisFile = path.join(sourceDir, 'deliverables', 'code_analysis_deliverable.md');
+    return await fs.pathExists(codeAnalysisFile);
+  },
+
+  // Whitebox: Reconnaissance agent
+  recon: async (sourceDir: string): Promise<boolean> => {
+    const reconFile = path.join(sourceDir, 'deliverables', 'recon_deliverable.md');
+    return await fs.pathExists(reconFile);
+  },
+
+  // Whitebox: Vulnerability analysis agents
+  'injection-vuln': createVulnValidator('injection'),
+  'xss-vuln': createVulnValidator('xss'),
+  'auth-vuln': createVulnValidator('auth'),
+  'ssrf-vuln': createVulnValidator('ssrf'),
+  'authz-vuln': createVulnValidator('authz'),
+
+  // Whitebox: Exploitation agents
+  'injection-exploit': createExploitValidator('injection'),
+  'xss-exploit': createExploitValidator('xss'),
+  'auth-exploit': createExploitValidator('auth'),
+  'ssrf-exploit': createExploitValidator('ssrf'),
+  'authz-exploit': createExploitValidator('authz'),
+
+  // Whitebox: Executive report agent
+  report: async (sourceDir: string, logger: ActivityLogger): Promise<boolean> => {
+    const reportFile = path.join(
+      sourceDir,
+      'deliverables',
+      'final_report.md'
+    );
+    const reportExists = await fs.pathExists(reportFile);
+    if (!reportExists) {
+      logger.error('Missing required deliverable: final_report.md');
+    }
+    return reportExists;
+  },
 
   // Gray-box discovery and auth mapping
   'discovery': async (sourceDir: string): Promise<boolean> => {

@@ -3,7 +3,8 @@
 Project documentation for the target application is available at {{REPO_PATH}}/. Treat this folder as **read-only input**: explore it with Bash (`ls`, `find`, `cat`) or the Read tool as needed to ground your analysis.
 
 Expected layout:
-- `{{REPO_PATH}}/docs/`        — project overview, architecture, user flows, business logic (required, always present)
+- `{{REPO_PATH}}/docs/`        — project overview, architecture, user flows, business logic (required for graybox/mobile/api; optional context for whitebox)
+- `{{SRC_PATH}}/`              — application source code (required for whitebox; optional context for graybox/mobile/api when present)
 - `{{REPO_PATH}}/schemas/`     — OpenAPI / GraphQL / protobuf specs (optional)
 - `{{REPO_PATH}}/api/`         — endpoint documentation, auth flows, request/response examples (optional)
 - `{{REPO_PATH}}/auth/`        — role matrix, permission model, identity flows (optional)
@@ -11,9 +12,9 @@ Expected layout:
 
 Detected subfolders for this run: {{DOCS_STRUCTURE}}
 
-Start every session by listing `{{REPO_PATH}}/` to ground your analysis in the provided documentation. Prefer reading docs on demand — do not dump entire files into your working context unless directly relevant to the current testing phase.
+Start every session by listing `{{REPO_PATH}}/` to ground your analysis in the provided documentation. Prefer reading docs on demand — do not dump entire files into your working context unless directly relevant to the current testing phase. Whitebox runs should additionally explore `{{SRC_PATH}}/` (the read-only source tree) for code-level analysis.
 
-**DO NOT write to `{{REPO_PATH}}/`** — it is input-only. Save deliverables via the `save_deliverable` tool, which writes to the deliverables directory automatically.
+**DO NOT write to `{{REPO_PATH}}/`** (including `{{SRC_PATH}}/`) — it is input-only. Save deliverables via the `save_deliverable` tool, which writes to the deliverables directory automatically.
 
 ## Workspace hygiene (STRICT — violations break the pipeline)
 

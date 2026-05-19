@@ -224,7 +224,6 @@ export async function pentestPipelineWorkflow(
     // and api siblings as incomplete and unlink the file the graybox agent just
     // produced — silently wiping deliverables on every resume.
     const target = input.pipelineConfig?.target || 'web';
-    // DISABLED: whitebox runtime deprecated — default mode is now 'graybox'.
     const mode = input.pipelineConfig?.mode || 'graybox';
     const agentsForMode = target === 'api'
       ? API_GRAYBOX_AGENTS
@@ -365,54 +364,6 @@ export async function pentestPipelineWorkflow(
     return results;
   }
 
-  // DISABLED: whitebox pipeline configs — runtime deprecated. Kept as reference.
-  // Uncomment (along with whitebox activity exports in activities.ts and the
-  // AGENTS entries in session-manager.ts) to restore.
-  // function buildPipelineConfigs(): Array<{
-  //   vulnType: VulnType;
-  //   vulnAgent: string;
-  //   exploitAgent: string;
-  //   runVuln: () => Promise<AgentMetrics>;
-  //   runExploit: () => Promise<AgentMetrics>;
-  // }> {
-  //   return [
-  //     {
-  //       vulnType: 'injection',
-  //       vulnAgent: 'injection-vuln',
-  //       exploitAgent: 'injection-exploit',
-  //       runVuln: () => a.runInjectionVulnAgent(activityInput),
-  //       runExploit: () => a.runInjectionExploitAgent(activityInput),
-  //     },
-  //     {
-  //       vulnType: 'xss',
-  //       vulnAgent: 'xss-vuln',
-  //       exploitAgent: 'xss-exploit',
-  //       runVuln: () => a.runXssVulnAgent(activityInput),
-  //       runExploit: () => a.runXssExploitAgent(activityInput),
-  //     },
-  //     {
-  //       vulnType: 'auth',
-  //       vulnAgent: 'auth-vuln',
-  //       exploitAgent: 'auth-exploit',
-  //       runVuln: () => a.runAuthVulnAgent(activityInput),
-  //       runExploit: () => a.runAuthExploitAgent(activityInput),
-  //     },
-  //     {
-  //       vulnType: 'ssrf',
-  //       vulnAgent: 'ssrf-vuln',
-  //       exploitAgent: 'ssrf-exploit',
-  //       runVuln: () => a.runSsrfVulnAgent(activityInput),
-  //       runExploit: () => a.runSsrfExploitAgent(activityInput),
-  //     },
-  //     {
-  //       vulnType: 'authz',
-  //       vulnAgent: 'authz-vuln',
-  //       exploitAgent: 'authz-exploit',
-  //       runVuln: () => a.runAuthzVulnAgent(activityInput),
-  //       runExploit: () => a.runAuthzExploitAgent(activityInput),
-  //     },
-  //   ];
-  // }
 
   // Aggregate results from settled pipeline promises into workflow state
   function aggregatePipelineResults(
@@ -597,6 +548,21 @@ export async function pentestPipelineWorkflow(
       ];
     }
 
+    function buildWhiteboxPipelineConfigs(): PipelineConfigEntry[] {
+      return [
+        { vulnType: 'injection', vulnAgent: 'injection-vuln', exploitAgent: 'injection-exploit',
+          runVuln: a.runInjectionVulnAgent, runExploit: a.runInjectionExploitAgent },
+        { vulnType: 'xss', vulnAgent: 'xss-vuln', exploitAgent: 'xss-exploit',
+          runVuln: a.runXssVulnAgent, runExploit: a.runXssExploitAgent },
+        { vulnType: 'auth', vulnAgent: 'auth-vuln', exploitAgent: 'auth-exploit',
+          runVuln: a.runAuthVulnAgent, runExploit: a.runAuthExploitAgent },
+        { vulnType: 'ssrf', vulnAgent: 'ssrf-vuln', exploitAgent: 'ssrf-exploit',
+          runVuln: a.runSsrfVulnAgent, runExploit: a.runSsrfExploitAgent },
+        { vulnType: 'authz', vulnAgent: 'authz-vuln', exploitAgent: 'authz-exploit',
+          runVuln: a.runAuthzVulnAgent, runExploit: a.runAuthzExploitAgent },
+      ];
+    }
+
     // Run vuln→exploit pipelines for every (persona × vuln-type) pair in parallel,
     // bounded by max_concurrent_pipelines. Failure of one pair never blocks others.
     async function runPipelinePhase(pipelineConfigs: PipelineConfigEntry[]): Promise<void> {
@@ -656,20 +622,13 @@ export async function pentestPipelineWorkflow(
       await runPipelinePhase(buildGrayboxPipelineConfigs());
 
     } else {
-      // DISABLED: whitebox pipeline branch — runtime deprecated. Kept as reference.
-      // Uncomment buildPipelineConfigs + the whitebox activity exports to restore.
-      // log.info('Starting white-box pipeline mode');
-      // // === Phase 1: Pre-Reconnaissance ===
-      // await runSequentialPhase('pre-recon', 'pre-recon', a.runPreReconAgent);
-      //
-      // // === Phase 2: Reconnaissance ===
-      // await runSequentialPhase('recon', 'recon', a.runReconAgent);
-      //
-      // // === Phases 3-4: Vulnerability Analysis + Exploitation (Pipelined) ===
-      // await runPipelinePhase(buildPipelineConfigs());
-      throw new Error(
-        'Whitebox pipeline is disabled. Set pipeline.mode to "graybox" (or use target mobile/api) in your config.'
-      );
+      log.info('Starting white-box pipeline mode');
+      // === Phase 1: Pre-Reconnaissance ===
+      await runSequentialPhase('pre-recon', 'pre-recon', a.runPreReconAgent);
+      // === Phase 2: Reconnaissance ===
+      await runSequentialPhase('recon', 'recon', a.runReconAgent);
+      // === Phases 3-4: Vulnerability Analysis + Exploitation (Pipelined) ===
+      await runPipelinePhase(buildWhiteboxPipelineConfigs());
     }
 
     // === Phase 5: Reporting ===
@@ -726,26 +685,22 @@ export async function pentestPipelineWorkflow(
         state.completedAgents.push(reportAgent);
       }
     } else {
-      // DISABLED: whitebox report branch — runtime deprecated. Kept as reference.
-      // if (!shouldSkip('report')) {
-      //   state.currentPhase = 'reporting';
-      //   state.currentAgent = 'report';
-      //   await a.logPhaseTransition(activityInput, 'reporting', 'start');
-      //
-      //   // Assemble whitebox exploitation evidence, then run report agent
-      //   await a.assembleReportActivity(activityInput);
-      //   state.agentMetrics['report'] = await a.runReportAgent(activityInput);
-      //   state.completedAgents.push('report');
-      //
-      //   await a.injectReportMetadataActivity(activityInput);
-      //   await a.logPhaseTransition(activityInput, 'reporting', 'complete');
-      // } else {
-      //   log.info('Skipping report (already complete)');
-      //   state.completedAgents.push('report');
-      // }
-      throw new Error(
-        'Whitebox reporting branch is disabled. Set pipeline.mode to "graybox" (or use target mobile/api) in your config.'
-      );
+      // Whitebox reporting
+      if (!shouldSkip('report')) {
+        state.currentPhase = 'reporting';
+        state.currentAgent = 'report';
+        await a.logPhaseTransition(activityInput, 'reporting', 'start');
+
+        await a.assembleReportActivity(activityInput);
+        state.agentMetrics['report'] = await a.runReportAgent(activityInput);
+        state.completedAgents.push('report');
+
+        await a.injectReportMetadataActivity(activityInput);
+        await a.logPhaseTransition(activityInput, 'reporting', 'complete');
+      } else {
+        log.info('Skipping report (already complete)');
+        state.completedAgents.push('report');
+      }
     }
 
     state.status = 'completed';

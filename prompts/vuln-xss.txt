@@ -15,6 +15,8 @@ Success criterion: Live confirmation of XSS execution for every vulnerability th
 @include(shared/_target.txt)
 </target>
 
+@include(shared/_project-docs.txt)
+
 <rules>
 @include(shared/_rules.txt)
 </rules>

@@ -334,16 +334,24 @@ Compose the rendered "## 7.5 Remediation Verification" block per `<remediation_v
 
 If `claims_count == 0`, SKIP this step entirely.
 
-**Step 6 — stitch header + enriched body + footer:**
+**Step 6 — stitch header + enriched body + footer.**
+
+Run this EXACT command with `Bash` (single call):
 ```bash
 cat /tmp/header.md deliverables/final_report.md /tmp/footer.md > /tmp/final_report.combined.md && mv /tmp/final_report.combined.md deliverables/final_report.md
 ```
-(`Bash` tool, single command. `mv` from `/tmp` to `deliverables/` works fine across the container's filesystem.)
+
+Stitch invariants — `cat` redirection is the highest-blast-radius step in this prompt:
+- Always write to `/tmp/final_report.combined.md` first, then `mv` into place. Never redirect `cat` directly into a file that is also one of its inputs.
+- Never use `>>` (append) where `deliverables/final_report.md` is the destination. The stitch is a full overwrite.
+- Reference the deliverable only by the relative path `deliverables/final_report.md`. Absolute container paths (`/app/output/...`, `/app/audit-logs/...`) may bind-mount to the same file; mixing them turns the stitch into a self-append loop that fills the disk.
 
 **Step 7 — register the deliverable:**
 Call `save_deliverable` with `deliverable_type: "REPORT"` and `file_path: "deliverables/final_report.md"`. The MCP tool re-reads the file and registers it in the audit log.
 
 **Forbidden:**
+- Any `cat ... >> deliverables/final_report.md` (or any redirect whose destination is `deliverables/final_report.md` while one of the inputs also resolves to that file). This self-append pattern fills the disk before any timeout can fire.
+- Referring to the deliverable by an absolute container path (`/app/output/<session>/...`, `/app/audit-logs/<session>/...`). Use the relative path `deliverables/final_report.md` only — the container has bind-mounted aliases that look like distinct files but are not.
 - A single `Write` call with the entire enriched report inline — this is exactly what triggered Cloudflare 524 timeouts before.
 - `mkdir -p deliverables/final_report.md` — `final_report.md` is a FILE name, not a directory.
 - Skipping step 1 (Edit will fail because the file doesn't exist yet).

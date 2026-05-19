@@ -1,0 +1,76 @@
+# Shannon whitebox config for VulHealth
+#
+# Prerequisites:
+#   - ./repos/vulHealth/src/   — read-only source tree (backend/, frontend/, swagger.json, etc.)
+#   - ./repos/vulHealth/docs/  — optional context, surfaced to agents as supporting docs
+#
+# Run from the shannon/ directory:
+#   ./shannon start URL=http://host.docker.internal:4000 REPO=vulHealth CONFIG=./configs/vulhealth-whitebox.yaml
+#
+# Whitebox flow (no auth-mapper, no discovery agent):
+#   pre-recon  -> reads {{SRC_PATH}}/, produces code_analysis_deliverable.md
+#   recon      -> correlates code findings with live behaviour at URL, produces recon_deliverable.md
+#   vuln x 5   -> injection / xss / auth / ssrf / authz (parallel, persona-aware)
+#   exploit x 5 -> conditional on non-empty queue from each vuln agent
+#   report     -> assembles deliverables/final_report.md
+#
+# Single 'admin' persona keeps the whitebox run focused on code-level findings.
+# Switch to multi-persona only when you specifically want cross-role exploitation
+# (whitebox already sees all roles in source code; live-session fan-out is optional).
+
+pipeline:
+  target: web
+  mode: whitebox
+  max_concurrent_pipelines: "5"
+
+authentication:
+  login_type: form
+  login_url: http://host.docker.internal:8120/login
+  login_flow:
+    - "Navigate to /login"
+    - "Fill the username field with $username"
+    - "Fill the password field with $password"
+    - "Click the 'Sign in' button"
+  success_condition:
+    type: url_contains
+    value: "/"
+  personas:
+    - name: admin
+      role: administrator
+      credentials:
+        username: admin
+        password: admin123
+
+context:
+  schemas:
+    - url: /api-docs/swagger.json
+      type: openapi
+
+rules:
+  focus:
+    - description: "Medical records — primary IDOR target across patient/doctor boundaries"
+      type: path
+      url_path: /api/medical-records
+    - description: "Admin user management — exposes password hashes (vertical escalation surface)"
+      type: path
+      url_path: /api/admin/users
+    - description: "Admin diagnostic ping — SSRF-prone endpoint"
+      type: path
+      url_path: /admin/ping
+    - description: "Department import — XML/XXE-prone endpoint"
+      type: path
+      url_path: /admin/import/departments
+    - description: "Appointments — cross-patient access via appointment IDs"
+      type: path
+      url_path: /api/appointments
+    - description: "Messaging — patient-doctor messages, possible cross-conversation IDOR"
+      type: path
+      url_path: /api/messages
+
+  avoid:
+    - description: "Logout — would invalidate the admin session mid-run"
+      type: path
+      url_path: /logout
+    - description: "Backup endpoint — destructive, may flush state"
+      type: path
+      url_path: /admin/backup

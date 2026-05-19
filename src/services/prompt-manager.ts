@@ -13,6 +13,10 @@ import type { ActivityLogger } from '../types/activity-logger.js';
 interface PromptVariables {
   webUrl: string;
   repoPath: string;
+  // Source code root for whitebox mode. Always derived as `{repoPath}/src`, surfaced
+  // to prompts via {{SRC_PATH}}. Required by whitebox prompts; graybox/mobile/api
+  // prompts may still reference it as optional context when `src/` exists.
+  srcPath: string;
   MCP_SERVER?: string;
   // Human-readable summary of which optional subfolders are present under repoPath
   // (e.g., "docs, schemas, auth" or "docs only"). Injected via {{DOCS_STRUCTURE}}.
@@ -172,9 +176,9 @@ async function interpolateVariables(
 
     const isMobile = !!variables.bundleId || !!variables.appPath;
 
-    if (!variables || (!isMobile && !variables.webUrl) || !variables.repoPath) {
+    if (!variables || (!isMobile && !variables.webUrl) || !variables.repoPath || !variables.srcPath) {
       throw new PentestError(
-        'Variables must include repoPath (and webUrl for web targets, or appPath for mobile)',
+        'Variables must include repoPath and srcPath (and webUrl for web targets, or appPath for mobile)',
         'validation',
         false,
         { variables: Object.keys(variables || {}) }
@@ -189,6 +193,7 @@ async function interpolateVariables(
     let result = template
       .replace(/{{WEB_URL}}/g, variables.webUrl || variables.backendApiUrl || '')
       .replace(/{{REPO_PATH}}/g, variables.repoPath)
+      .replace(/{{SRC_PATH}}/g, variables.srcPath)
       .replace(/{{MCP_SERVER}}/g, variables.MCP_SERVER || 'playwright-agent1')
       .replace(/{{DOCS_STRUCTURE}}/g, variables.docsStructure || 'not scanned')
       .replace(/{{APP_PATH}}/g, variables.appPath || '')

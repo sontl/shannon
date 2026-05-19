@@ -195,6 +195,7 @@ export class AgentExecutionService {
         {
           webUrl,
           repoPath,
+          srcPath: path.join(repoPath, 'src'),
           ...(input.bundleId && { bundleId: input.bundleId }),
           ...(input.deviceId && { deviceId: input.deviceId }),
           ...(input.appiumUrl && { appiumUrl: input.appiumUrl }),

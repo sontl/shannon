@@ -4,13 +4,11 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
-// NOTE: This module's source-code checkpoint/rollback logic was designed for
-// the legacy whitebox pipeline, which operated on git-managed source repositories.
-// The graybox pipeline runs against ./audit-logs/<sessionId>/ workspaces, which
-// are not git repos — every exported function short-circuits via isGitRepository()
-// and becomes a no-op in that case. The code is kept intact so whitebox can be
-// restored later if needed. Uncomment the whitebox agent registration in
-// src/types/agents.ts + src/session-manager.ts to restore.
+// NOTE: Checkpoint/rollback ops target the agent workspace (./audit-logs/<sessionId>/),
+// not the read-only repo input. If the workspace is not a git repo (typical for
+// graybox/mobile/api runs), every exported function short-circuits via isGitRepository()
+// and becomes a no-op — checkpoints only apply when the workspace happens to be
+// initialized as a git repo (whitebox or user-prepared workspaces).
 
 import { $ } from 'zx';
 import { PentestError } from './error-handling.js';

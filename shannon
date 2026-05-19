@@ -45,12 +45,15 @@ Usage:
   ./shannon start URL=<url> REPO=<name> CONFIG=<api>  Start an API-only pentest workflow
   ./shannon workspaces                              List all workspaces
   ./shannon logs ID=<workflow-id>                   Tail logs for a specific workflow
+  ./shannon trace [WORKSPACE=<name>] [PERSONA=<p>]  Open Playwright trace viewer for a run
   ./shannon stop                                    Stop all containers
   ./shannon help                                    Show this help message
 
 Required for every 'start':
-  REPO=<name>            Folder under ./repos/ holding target documentation
-                         (specs, schemas, API docs — surfaced to every agent)
+  REPO=<name>            Folder under ./repos/ holding target inputs:
+                           docs/  - required for graybox/mobile/api (specs, architecture, user flows)
+                           src/   - required for whitebox (read-only source tree)
+                         Optional sibling folders: schemas/, api/, auth/, remediation/.
 
 Options for 'start' (web):
   URL=<url>              Target website URL
@@ -71,6 +74,17 @@ Options for 'start' (shared):
   PIPELINE_TESTING=true  Use minimal prompts for fast testing
   ROUTER=true            Route requests through claude-code-router (multi-model support)
 
+Options for 'trace':
+  WORKSPACE=<name>       Workspace under ./audit-logs/ (default: most recent with traces)
+  PERSONA=<name>         Filter to a single persona dir (default: all personas)
+  AGENT=<name>           Filter to traces produced while an agent was active
+                         (e.g. xss-exploit, ssrf-vuln, recon, pre-recon)
+  LIST=true              List trace files chronologically with their owning agent
+  TRACE=<filename>       Open this specific trace file (e.g. trace-1778650775785.trace)
+  INDEX=<n>              Open the Nth trace from the LIST (1-based)
+  EVIDENCE=true          Skip the viewer; print the trace zip + agent log + deliverable
+                         markdown for the picked trace, so reasoning and UI line up
+
 Options for 'stop':
   CLEAN=true             Remove all data including volumes
 
@@ -84,6 +98,14 @@ Examples:
   ./shannon start URL=https://api.example.com REPO=repo-name CONFIG=./configs/api-graybox-sample.yaml
   ./shannon workspaces
   ./shannon logs ID=example.com_shannon-1234567890
+  ./shannon trace
+  ./shannon trace WORKSPACE=example.com_shannon-1234567890
+  ./shannon trace WORKSPACE=example.com_shannon-1234567890 PERSONA=admin
+  ./shannon trace WORKSPACE=example.com_shannon-1234567890 LIST=true
+  ./shannon trace WORKSPACE=example.com_shannon-1234567890 INDEX=3
+  ./shannon trace WORKSPACE=example.com_shannon-1234567890 TRACE=trace-1778650775785.trace
+  ./shannon trace AGENT=xss-exploit
+  ./shannon trace AGENT=xss-exploit EVIDENCE=true
   ./shannon stop CLEAN=true
 
 Monitor workflows at http://localhost:8233
@@ -107,6 +129,12 @@ parse_args() {
       REBUILD=*) REBUILD="${arg#REBUILD=}" ;;
       ROUTER=*) ROUTER="${arg#ROUTER=}" ;;
       WORKSPACE=*) WORKSPACE="${arg#WORKSPACE=}" ;;
+      PERSONA=*) PERSONA="${arg#PERSONA=}" ;;
+      LIST=*) LIST="${arg#LIST=}" ;;
+      TRACE=*) TRACE="${arg#TRACE=}" ;;
+      INDEX=*) INDEX="${arg#INDEX=}" ;;
+      AGENT=*) AGENT="${arg#AGENT=}" ;;
+      EVIDENCE=*) EVIDENCE="${arg#EVIDENCE=}" ;;
     esac
   done
 }
@@ -418,6 +446,315 @@ cmd_workspaces() {
     node dist/temporal/workspaces.js
 }
 
+# Cross-platform mtime helper (mac: stat -f, Linux: stat -c)
+_mtime() {
+  stat -f "%m" "$1" 2>/dev/null || stat -c "%Y" "$1" 2>/dev/null || echo 0
+}
+
+# Emit one tab-separated row per trace file, enriched with the agent that
+# owned it. Columns: path, persona, hh:mm:ss, agent, attempt, agent_log_basename,
+# deliverable_basename, size_bytes. Rows are sorted chronologically. The "owning"
+# agent for a trace is the latest agent whose start timestamp (encoded in the
+# audit log filename) is <= the trace's timestamp.
+_trace_metadata() {
+  python3 - "$@" <<'PY'
+import os, re, sys
+ws = sys.argv[1]
+trace_paths = sys.argv[2:]
+
+agents_dir = os.path.join(ws, 'agents')
+agents = []
+if os.path.isdir(agents_dir):
+    for f in os.listdir(agents_dir):
+        m = re.match(r'^(\d+)_([\w-]+)_attempt-(\d+)\.log$', f)
+        if not m:
+            continue
+        agents.append((int(m.group(1)), m.group(2), int(m.group(3)), f))
+agents.sort()
+
+def owner(ts):
+    best = ('', 0, '')
+    for ep, name, att, fn in agents:
+        if ep <= ts:
+            best = (name, att, fn)
+        else:
+            break
+    return best
+
+def deliverable(agent):
+    if not agent:
+        return ''
+    if agent == 'pre-recon':
+        return 'code_analysis_deliverable.md'
+    if agent == 'recon':
+        return 'recon_deliverable.md'
+    if agent.endswith('-vuln'):
+        return f'{agent[:-len("-vuln")]}_analysis_deliverable.md'
+    if agent.endswith('-exploit'):
+        return f'{agent[:-len("-exploit")]}_exploitation_evidence.md'
+    return ''
+
+import datetime
+rows = []
+for p in trace_paths:
+    bn = os.path.basename(p)
+    if not (bn.startswith('trace-') and bn.endswith('.trace')):
+        continue
+    try:
+        ts = int(bn[len('trace-'):-len('.trace')])
+    except ValueError:
+        continue
+    persona = os.path.basename(os.path.dirname(os.path.dirname(p)))
+    size = os.path.getsize(p)
+    rows.append((ts, p, persona, size))
+rows.sort()
+
+for ts, p, persona, size in rows:
+    when = datetime.datetime.fromtimestamp(ts / 1000).strftime('%H:%M:%S')
+    name, att, fn = owner(ts)
+    print('\t'.join([
+        p, persona, when,
+        name or '-', str(att) if att else '',
+        fn or '', deliverable(name), str(size),
+    ]))
+PY
+}
+
+# Repack a Playwright MCP "unpacked" trace into the zip layout that
+# `playwright show-trace` expects. The MCP writes per-call files
+# trace-<ts>.{trace,network,stacks} sharing a single resources/ folder;
+# the viewer needs entries named trace.trace / trace.network / trace.stacks
+# plus resources/* in a single zip. Cached next to the source so reopens
+# are instant; rebuilt if any source file is newer than the cached zip.
+_pack_trace_zip() {
+  python3 - "$1" "$2" <<'PY'
+import os, sys, zipfile
+src_trace, out_zip = sys.argv[1], sys.argv[2]
+src_dir = os.path.dirname(src_trace)
+base = src_trace[:-len('.trace')]
+resources = os.path.join(src_dir, 'resources')
+with zipfile.ZipFile(out_zip, 'w', zipfile.ZIP_DEFLATED) as z:
+    z.write(src_trace, 'trace.trace')
+    for ext in ('.network', '.stacks'):
+        p = base + ext
+        if os.path.isfile(p):
+            z.write(p, 'trace' + ext)
+    if os.path.isdir(resources):
+        for root, _, files in os.walk(resources):
+            for f in files:
+                full = os.path.join(root, f)
+                rel = os.path.relpath(full, src_dir)
+                z.write(full, rel)
+PY
+}
+
+cmd_trace() {
+  parse_args "$@"
+
+  AUDIT_DIR="./audit-logs"
+  if [ ! -d "$AUDIT_DIR" ]; then
+    echo "ERROR: No audit-logs directory at $AUDIT_DIR"
+    exit 1
+  fi
+
+  # 1. Resolve workspace — explicit WORKSPACE= wins, otherwise pick the most
+  # recently modified workspace that actually has a .runtime/traces tree.
+  if [ -z "$WORKSPACE" ]; then
+    LATEST=""
+    LATEST_MTIME=0
+    for ws in "$AUDIT_DIR"/*/; do
+      [ -d "${ws}.runtime/traces" ] || continue
+      m=$(_mtime "$ws")
+      if [ "${m:-0}" -gt "$LATEST_MTIME" ]; then
+        LATEST_MTIME=$m
+        LATEST=$(basename "$ws")
+      fi
+    done
+    if [ -z "$LATEST" ]; then
+      echo "ERROR: No workspaces with Playwright traces under $AUDIT_DIR"
+      echo "Hint: traces are only produced by web pentests (Playwright MCP)"
+      exit 1
+    fi
+    WORKSPACE=$LATEST
+    echo "No WORKSPACE= given — using most recent: $WORKSPACE"
+  fi
+
+  WS_DIR="$AUDIT_DIR/$WORKSPACE"
+  TRACES_ROOT="$WS_DIR/.runtime/traces"
+
+  if [ ! -d "$WS_DIR" ]; then
+    echo "ERROR: Workspace not found: $WS_DIR"
+    echo "Hint: ./shannon workspaces"
+    exit 1
+  fi
+  if [ ! -d "$TRACES_ROOT" ]; then
+    echo "ERROR: No traces found at $TRACES_ROOT"
+    echo "Hint: only web pentests record Playwright traces"
+    exit 1
+  fi
+
+  # 2. Resolve persona scope.
+  if [ -n "$PERSONA" ]; then
+    if [ ! -d "$TRACES_ROOT/$PERSONA" ]; then
+      echo "ERROR: Persona '$PERSONA' has no traces under $TRACES_ROOT"
+      echo "Available personas:"
+      for d in "$TRACES_ROOT"/*/; do
+        [ -d "$d" ] && echo "  - $(basename "$d")"
+      done
+      exit 1
+    fi
+    PERSONA_DIRS=("$TRACES_ROOT/$PERSONA")
+  else
+    PERSONA_DIRS=()
+    for d in "$TRACES_ROOT"/*/; do
+      [ -d "$d" ] && PERSONA_DIRS+=("${d%/}")
+    done
+  fi
+
+  # 3. Collect trace files (Playwright unpacked layout: <persona>/traces/*.trace).
+  RAW_TRACE_FILES=()
+  for d in "${PERSONA_DIRS[@]}"; do
+    while IFS= read -r f; do
+      [ -n "$f" ] && RAW_TRACE_FILES+=("$f")
+    done < <(find "$d/traces" -maxdepth 1 -type f -name "trace-*.trace" 2>/dev/null)
+  done
+
+  if [ ${#RAW_TRACE_FILES[@]} -eq 0 ]; then
+    echo "ERROR: No trace files (.trace) under $TRACES_ROOT"
+    exit 1
+  fi
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "ERROR: python3 is required for trace metadata + packaging."
+    exit 1
+  fi
+
+  # 4. Enrich with owning-agent metadata (chronological order).
+  # Each META line: path \t persona \t hh:mm:ss \t agent \t attempt \t agent_log \t deliverable_md \t size_bytes
+  META=$(_trace_metadata "$WS_DIR" "${RAW_TRACE_FILES[@]}")
+
+  # 5. Optional AGENT= filter.
+  if [ -n "$AGENT" ]; then
+    META=$(printf '%s\n' "$META" | awk -F'\t' -v a="$AGENT" 'NF && $4 == a { print }')
+    if [ -z "$META" ]; then
+      echo "ERROR: No traces produced while AGENT='$AGENT' was active."
+      echo "Hint: ./shannon trace WORKSPACE=$WORKSPACE LIST=true  # see agents"
+      exit 1
+    fi
+  fi
+
+  # 6. Rebuild TRACE_FILES from the (possibly filtered) chronological META.
+  TRACE_FILES=()
+  while IFS=$'\t' read -r path _persona _when _agent _att _fn _deliv _size; do
+    [ -n "$path" ] && TRACE_FILES+=("$path")
+  done <<< "$META"
+
+  # 7. LIST mode — print enriched table and exit.
+  if [ "$LIST" = "true" ]; then
+    echo "Workspace: $WORKSPACE"
+    [ -n "$AGENT" ] && echo "Agent filter: $AGENT"
+    echo "Traces (${#TRACE_FILES[@]}):"
+    i=1
+    while IFS=$'\t' read -r path persona when agent att _fn _deliv size; do
+      [ -z "$path" ] && continue
+      sz_h=$(du -h "$path" 2>/dev/null | awk '{print $1}')
+      agent_col="$agent"
+      [ -n "$att" ] && agent_col="${agent}#${att}"
+      printf "  %2d. [%-10s] %s  -> %-22s %s (%s)\n" \
+        "$i" "$persona" "$when" "$agent_col" "$(basename "$path")" "$sz_h"
+      i=$((i + 1))
+    done <<< "$META"
+    echo ""
+    echo "Open viewer: ./shannon trace WORKSPACE=$WORKSPACE INDEX=<n>"
+    echo "Or evidence: ./shannon trace WORKSPACE=$WORKSPACE INDEX=<n> EVIDENCE=true"
+    exit 0
+  fi
+
+  # 8. Pick a single trace — show-trace only accepts one trace per run.
+  PICK=""
+  if [ -n "$TRACE" ]; then
+    for f in "${TRACE_FILES[@]}"; do
+      if [ "$(basename "$f")" = "$TRACE" ]; then
+        PICK=$f
+        break
+      fi
+    done
+    if [ -z "$PICK" ]; then
+      echo "ERROR: TRACE='$TRACE' not found in current filter."
+      echo "Hint: ./shannon trace WORKSPACE=$WORKSPACE LIST=true"
+      exit 1
+    fi
+  elif [ -n "$INDEX" ]; then
+    if ! [[ "$INDEX" =~ ^[0-9]+$ ]] || [ "$INDEX" -lt 1 ] || [ "$INDEX" -gt ${#TRACE_FILES[@]} ]; then
+      echo "ERROR: INDEX=$INDEX is out of range (1..${#TRACE_FILES[@]})"
+      exit 1
+    fi
+    PICK=${TRACE_FILES[$((INDEX - 1))]}
+  else
+    # Default: last in chronological list (= most recent).
+    PICK=${TRACE_FILES[$((${#TRACE_FILES[@]} - 1))]}
+    [ -z "$AGENT" ] && echo "No TRACE=/INDEX= given — opening most recent."
+    echo "Hint: ./shannon trace WORKSPACE=$WORKSPACE LIST=true  # see all"
+  fi
+
+  # 9. Pull the META row for the picked trace so we can show / link the agent.
+  PICK_ROW=$(printf '%s\n' "$META" | awk -F'\t' -v p="$PICK" '$1 == p { print; exit }')
+  IFS=$'\t' read -r _ p_persona p_when p_agent p_att p_log p_deliv _ <<< "$PICK_ROW"
+
+  echo "Workspace: $WORKSPACE"
+  echo "Persona:   $p_persona"
+  echo "Time:      $p_when"
+  [ -n "$p_agent" ] && [ "$p_agent" != "-" ] && \
+    echo "Agent:     $p_agent${p_att:+ (attempt $p_att)}"
+  echo "Trace:     $(basename "$PICK")"
+
+  # 10. EVIDENCE mode — print companion paths, skip viewer.
+  if [ "$EVIDENCE" = "true" ]; then
+    echo ""
+    echo "=== Evidence trail ==="
+    if [ -n "$p_log" ] && [ -f "$WS_DIR/agents/$p_log" ]; then
+      echo "Agent log:    $WS_DIR/agents/$p_log"
+    else
+      echo "Agent log:    (none — trace pre-dates any agent in this workspace)"
+    fi
+    if [ -n "$p_deliv" ] && [ -f "$WS_DIR/deliverables/$p_deliv" ]; then
+      echo "Deliverable:  $WS_DIR/deliverables/$p_deliv"
+    elif [ -n "$p_deliv" ]; then
+      echo "Deliverable:  (expected $p_deliv — not yet written)"
+    fi
+    # Build the zip too so the user can open the viewer later by hand.
+    ZIP_PATH="${PICK%.trace}.zip"
+    if [ ! -f "$ZIP_PATH" ] || [ "$(_mtime "$PICK")" -gt "$(_mtime "$ZIP_PATH")" ]; then
+      _pack_trace_zip "$PICK" "$ZIP_PATH"
+    fi
+    echo "Trace zip:    $ZIP_PATH"
+    echo ""
+    echo "Open viewer with: npx --yes playwright show-trace \"$ZIP_PATH\""
+    exit 0
+  fi
+
+  # 11. Build (or reuse) a viewer-ready zip alongside the source.
+  ZIP_PATH="${PICK%.trace}.zip"
+  needs_pack=false
+  if [ ! -f "$ZIP_PATH" ]; then
+    needs_pack=true
+  else
+    src_m=$(_mtime "$PICK")
+    zip_m=$(_mtime "$ZIP_PATH")
+    if [ "${src_m:-0}" -gt "${zip_m:-0}" ]; then
+      needs_pack=true
+    fi
+  fi
+  if [ "$needs_pack" = "true" ]; then
+    echo "Packing trace zip: $ZIP_PATH"
+    _pack_trace_zip "$PICK" "$ZIP_PATH"
+  fi
+
+  echo "(first run may take a moment while npx fetches @playwright/test)"
+  echo ""
+  npx --yes playwright show-trace "$ZIP_PATH"
+}
+
 cmd_stop() {
   parse_args "$@"
 
@@ -441,6 +778,10 @@ case "${1:-help}" in
   workspaces)
     shift
     cmd_workspaces
+    ;;
+  trace)
+    shift
+    cmd_trace "$@"
     ;;
   stop)
     shift

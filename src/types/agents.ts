@@ -12,23 +12,21 @@
  * List of all agents in execution order.
  * Used for iteration during resume state checking.
  */
-// DISABLED: whitebox runtime deprecated. Kept as reference — uncomment to restore.
-// export const WHITEBOX_AGENTS = [
-//   'pre-recon',
-//   'recon',
-//   'injection-vuln',
-//   'xss-vuln',
-//   'auth-vuln',
-//   'ssrf-vuln',
-//   'authz-vuln',
-//   'injection-exploit',
-//   'xss-exploit',
-//   'auth-exploit',
-//   'ssrf-exploit',
-//   'authz-exploit',
-//   'report',
-// ] as const;
-export const WHITEBOX_AGENTS = [] as const;
+export const WHITEBOX_AGENTS = [
+  'pre-recon',
+  'recon',
+  'injection-vuln',
+  'xss-vuln',
+  'auth-vuln',
+  'ssrf-vuln',
+  'authz-vuln',
+  'injection-exploit',
+  'xss-exploit',
+  'auth-exploit',
+  'ssrf-exploit',
+  'authz-exploit',
+  'report',
+] as const;
 
 export const GRAYBOX_AGENTS = [
   'discovery',

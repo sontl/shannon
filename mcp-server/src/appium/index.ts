@@ -1,15 +1,16 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 TECHVIFY
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License version 3
-// as published by the Free Software Foundation.
+// This file is part of Gandalf, a fork of Shannon Lite by Keygraph, Inc.
+// (https://github.com/KeygraphHQ/shannon). It is released under the
+// GNU Affero General Public License version 3, the same license as the
+// upstream project. See LICENSE and NOTICE.md at the repository root.
 
 /**
  * Appium MCP Server
  *
  * Minimal MCP server that exposes Appium device interaction tools for
  * mobile pentest agents. Runs as a stdio subprocess alongside the main
- * Shannon helper MCP server.
+ * Gandalf helper MCP server.
  *
  * Tools:
  * - appium_tap: Tap an element by accessibility ID or XPath

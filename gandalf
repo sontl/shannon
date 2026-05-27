@@ -1,5 +1,5 @@
 #!/bin/bash
-# Shannon CLI - AI Penetration Testing Framework
+# Gandalf CLI - AI Penetration Testing Framework
 
 set -e
 
@@ -30,24 +30,24 @@ fi
 show_help() {
   cat << 'EOF'
 
-  ███████╗██╗  ██╗ █████╗ ███╗   ██╗███╗   ██╗ ██████╗ ███╗   ██╗
-  ██╔════╝██║  ██║██╔══██╗████╗  ██║████╗  ██║██╔═══██╗████╗  ██║
-  ███████╗███████║███████║██╔██╗ ██║██╔██╗ ██║██║   ██║██╔██╗ ██║
-  ╚════██║██╔══██║██╔══██║██║╚██╗██║██║╚██╗██║██║   ██║██║╚██╗██║
-  ███████║██║  ██║██║  ██║██║ ╚████║██║ ╚████║╚██████╔╝██║ ╚████║
-  ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═══╝
+   ██████╗  █████╗ ███╗   ██╗██████╗  █████╗ ██╗     ███████╗
+  ██╔════╝ ██╔══██╗████╗  ██║██╔══██╗██╔══██╗██║     ██╔════╝
+  ██║  ███╗███████║██╔██╗ ██║██║  ██║███████║██║     █████╗
+  ██║   ██║██╔══██║██║╚██╗██║██║  ██║██╔══██║██║     ██╔══╝
+  ╚██████╔╝██║  ██║██║ ╚████║██████╔╝██║  ██║███████╗██║
+   ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═══╝╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝
 
            AI Penetration Testing Framework
 
 Usage:
-  ./shannon start URL=<url> REPO=<name>             Start a web pentest workflow
-  ./shannon start APP=<id> DEVICE=<id> REPO=<name>  Start a mobile pentest workflow
-  ./shannon start URL=<url> REPO=<name> CONFIG=<api>  Start an API-only pentest workflow
-  ./shannon workspaces                              List all workspaces
-  ./shannon logs ID=<workflow-id>                   Tail logs for a specific workflow
-  ./shannon trace [WORKSPACE=<name>] [PERSONA=<p>]  Open Playwright trace viewer for a run
-  ./shannon stop                                    Stop all containers
-  ./shannon help                                    Show this help message
+  ./gandalf start URL=<url> REPO=<name>             Start a web pentest workflow
+  ./gandalf start APP=<id> DEVICE=<id> REPO=<name>  Start a mobile pentest workflow
+  ./gandalf start URL=<url> REPO=<name> CONFIG=<api>  Start an API-only pentest workflow
+  ./gandalf workspaces                              List all workspaces
+  ./gandalf logs ID=<workflow-id>                   Tail logs for a specific workflow
+  ./gandalf trace [WORKSPACE=<name>] [PERSONA=<p>]  Open Playwright trace viewer for a run
+  ./gandalf stop                                    Stop all containers
+  ./gandalf help                                    Show this help message
 
 Required for every 'start':
   REPO=<name>            Folder under ./repos/ holding target inputs:
@@ -89,24 +89,24 @@ Options for 'stop':
   CLEAN=true             Remove all data including volumes
 
 Examples:
-  ./shannon start URL=https://example.com REPO=repo-name
-  ./shannon start URL=https://example.com REPO=repo-name WORKSPACE=q1-audit
-  ./shannon start URL=https://example.com REPO=repo-name CONFIG=./config.yaml
-  ./shannon start URL=https://example.com REPO=repo-name OUTPUT=./my-reports
-  ./shannon start APP=com.example.app DEVICE=emulator-5554 REPO=repo-name CONFIG=./configs/mobile.yaml
-  ./shannon start APP=com.example.app DEVICE=emulator-5554 REPO=repo-name APK=/path/to/app.apk CONFIG=./configs/mobile.yaml
-  ./shannon start URL=https://api.example.com REPO=repo-name CONFIG=./configs/api-graybox-sample.yaml
-  ./shannon workspaces
-  ./shannon logs ID=example.com_shannon-1234567890
-  ./shannon trace
-  ./shannon trace WORKSPACE=example.com_shannon-1234567890
-  ./shannon trace WORKSPACE=example.com_shannon-1234567890 PERSONA=admin
-  ./shannon trace WORKSPACE=example.com_shannon-1234567890 LIST=true
-  ./shannon trace WORKSPACE=example.com_shannon-1234567890 INDEX=3
-  ./shannon trace WORKSPACE=example.com_shannon-1234567890 TRACE=trace-1778650775785.trace
-  ./shannon trace AGENT=xss-exploit
-  ./shannon trace AGENT=xss-exploit EVIDENCE=true
-  ./shannon stop CLEAN=true
+  ./gandalf start URL=https://example.com REPO=repo-name
+  ./gandalf start URL=https://example.com REPO=repo-name WORKSPACE=q1-audit
+  ./gandalf start URL=https://example.com REPO=repo-name CONFIG=./config.yaml
+  ./gandalf start URL=https://example.com REPO=repo-name OUTPUT=./my-reports
+  ./gandalf start APP=com.example.app DEVICE=emulator-5554 REPO=repo-name CONFIG=./configs/mobile.yaml
+  ./gandalf start APP=com.example.app DEVICE=emulator-5554 REPO=repo-name APK=/path/to/app.apk CONFIG=./configs/mobile.yaml
+  ./gandalf start URL=https://api.example.com REPO=repo-name CONFIG=./configs/api-graybox-sample.yaml
+  ./gandalf workspaces
+  ./gandalf logs ID=example.com_gandalf-1234567890
+  ./gandalf trace
+  ./gandalf trace WORKSPACE=example.com_gandalf-1234567890
+  ./gandalf trace WORKSPACE=example.com_gandalf-1234567890 PERSONA=admin
+  ./gandalf trace WORKSPACE=example.com_gandalf-1234567890 LIST=true
+  ./gandalf trace WORKSPACE=example.com_gandalf-1234567890 INDEX=3
+  ./gandalf trace WORKSPACE=example.com_gandalf-1234567890 TRACE=trace-1778650775785.trace
+  ./gandalf trace AGENT=xss-exploit
+  ./gandalf trace AGENT=xss-exploit EVIDENCE=true
+  ./gandalf stop CLEAN=true
 
 Monitor workflows at http://localhost:8233
 EOF
@@ -160,7 +160,7 @@ ensure_containers() {
   fi
 
   # Need to start containers
-  echo "Starting Shannon containers..."
+  echo "Starting Gandalf containers..."
   if [ "$REBUILD" = "true" ]; then
     # Force rebuild without cache (use when code changes aren't being picked up)
     echo "Rebuilding with --no-cache..."
@@ -200,31 +200,44 @@ cmd_start() {
     fi
   fi
 
+  # Detect network mode: config has pipeline.target: network
+  IS_NETWORK=""
+  if [ -z "$IS_MOBILE" ] && [ -z "$IS_API" ] && [ -n "$CONFIG" ] && [ -f "$CONFIG" ]; then
+    if grep -qE '^[[:space:]]*target:[[:space:]]*network[[:space:]]*$' "$CONFIG" 2>/dev/null; then
+      IS_NETWORK="true"
+    fi
+  fi
+
   # REPO is required for every target (provides documentation as input).
   if [ -z "$REPO" ]; then
     echo "ERROR: REPO is required (folder under ./repos/ with target documentation)"
-    echo "Usage: ./shannon start URL=<url> REPO=<name>"
-    echo "       ./shannon start APP=<bundle-id> DEVICE=<device-id> REPO=<name> CONFIG=<path>"
-    echo "       ./shannon start URL=<api-url> REPO=<name> CONFIG=<api-config>"
+    echo "Usage: ./gandalf start URL=<url> REPO=<name>"
+    echo "       ./gandalf start APP=<bundle-id> DEVICE=<device-id> REPO=<name> CONFIG=<path>"
+    echo "       ./gandalf start URL=<api-url> REPO=<name> CONFIG=<api-config>"
     exit 1
   fi
 
   if [ -n "$IS_MOBILE" ]; then
     if [ -z "$DEVICE" ]; then
       echo "ERROR: DEVICE is required for mobile targets"
-      echo "Usage: ./shannon start APP=<bundle-id> DEVICE=<device-id> REPO=<name> CONFIG=<path>"
+      echo "Usage: ./gandalf start APP=<bundle-id> DEVICE=<device-id> REPO=<name> CONFIG=<path>"
       exit 1
     fi
   elif [ -n "$IS_API" ]; then
     if [ -z "$URL" ]; then
       echo "ERROR: URL is required for API targets"
-      echo "Usage: ./shannon start URL=<api-url> REPO=<name> CONFIG=<path>"
+      echo "Usage: ./gandalf start URL=<api-url> REPO=<name> CONFIG=<path>"
       exit 1
     fi
+  elif [ -n "$IS_NETWORK" ]; then
+    # Network target: scope.targets in the config IS the addressing. URL is
+    # optional for network engagements (a customer "landing URL" is just
+    # documentation — the agent uses the scope list from config).
+    :
   else
     if [ -z "$URL" ]; then
-      echo "ERROR: URL is required for web targets (or use APP= for mobile, or CONFIG with pipeline.target=api)"
-      echo "Usage: ./shannon start URL=<url> REPO=<name>"
+      echo "ERROR: URL is required for web targets (or use APP= for mobile, CONFIG with pipeline.target=api, or CONFIG with pipeline.target=network)"
+      echo "Usage: ./gandalf start URL=<url> REPO=<name>"
       exit 1
     fi
   fi
@@ -333,7 +346,7 @@ cmd_start() {
     # Set ANTHROPIC_BASE_URL to route through router
     export ANTHROPIC_BASE_URL="http://router:3456"
     # Set auth token to match router's APIKEY
-    export ANTHROPIC_AUTH_TOKEN="shannon-router-key"
+    export ANTHROPIC_AUTH_TOKEN="gandalf-router-key"
   fi
 
   # Export mobile env vars for Docker container
@@ -372,8 +385,9 @@ cmd_start() {
 
   # Run the client to submit workflow.
   # Mobile mode passes no positional URL (target identified via APP=).
+  # Network mode also skips positional URL when none provided (scope.targets in config is authoritative).
   # Web/API both pass URL as the first positional.
-  if [ -n "$IS_MOBILE" ]; then
+  if [ -n "$IS_MOBILE" ] || { [ -n "$IS_NETWORK" ] && [ -z "$URL" ]; }; then
     docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE exec -T worker \
       node dist/temporal/client.js $ARGS
   else
@@ -387,7 +401,7 @@ cmd_logs() {
 
   if [ -z "$ID" ]; then
     echo "ERROR: ID is required"
-    echo "Usage: ./shannon logs ID=<workflow-id>"
+    echo "Usage: ./gandalf logs ID=<workflow-id>"
     exit 1
   fi
 
@@ -406,9 +420,9 @@ cmd_logs() {
       WORKFLOW_LOG="./audit-logs/${WORKSPACE_ID}/workflow.log"
     fi
 
-    # For named workspace IDs (e.g. workspace_shannon-123), check the workspace name
+    # For named workspace IDs (e.g. workspace_gandalf-123), check the workspace name
     if [ -z "$WORKFLOW_LOG" ]; then
-      WORKSPACE_ID="${ID%%_shannon-*}"
+      WORKSPACE_ID="${ID%%_gandalf-*}"
       if [ "$WORKSPACE_ID" != "$ID" ] && [ -f "./audit-logs/${WORKSPACE_ID}/workflow.log" ]; then
         WORKFLOW_LOG="./audit-logs/${WORKSPACE_ID}/workflow.log"
       fi
@@ -584,7 +598,7 @@ cmd_trace() {
 
   if [ ! -d "$WS_DIR" ]; then
     echo "ERROR: Workspace not found: $WS_DIR"
-    echo "Hint: ./shannon workspaces"
+    echo "Hint: ./gandalf workspaces"
     exit 1
   fi
   if [ ! -d "$TRACES_ROOT" ]; then
@@ -638,7 +652,7 @@ cmd_trace() {
     META=$(printf '%s\n' "$META" | awk -F'\t' -v a="$AGENT" 'NF && $4 == a { print }')
     if [ -z "$META" ]; then
       echo "ERROR: No traces produced while AGENT='$AGENT' was active."
-      echo "Hint: ./shannon trace WORKSPACE=$WORKSPACE LIST=true  # see agents"
+      echo "Hint: ./gandalf trace WORKSPACE=$WORKSPACE LIST=true  # see agents"
       exit 1
     fi
   fi
@@ -665,8 +679,8 @@ cmd_trace() {
       i=$((i + 1))
     done <<< "$META"
     echo ""
-    echo "Open viewer: ./shannon trace WORKSPACE=$WORKSPACE INDEX=<n>"
-    echo "Or evidence: ./shannon trace WORKSPACE=$WORKSPACE INDEX=<n> EVIDENCE=true"
+    echo "Open viewer: ./gandalf trace WORKSPACE=$WORKSPACE INDEX=<n>"
+    echo "Or evidence: ./gandalf trace WORKSPACE=$WORKSPACE INDEX=<n> EVIDENCE=true"
     exit 0
   fi
 
@@ -681,7 +695,7 @@ cmd_trace() {
     done
     if [ -z "$PICK" ]; then
       echo "ERROR: TRACE='$TRACE' not found in current filter."
-      echo "Hint: ./shannon trace WORKSPACE=$WORKSPACE LIST=true"
+      echo "Hint: ./gandalf trace WORKSPACE=$WORKSPACE LIST=true"
       exit 1
     fi
   elif [ -n "$INDEX" ]; then
@@ -694,7 +708,7 @@ cmd_trace() {
     # Default: last in chronological list (= most recent).
     PICK=${TRACE_FILES[$((${#TRACE_FILES[@]} - 1))]}
     [ -z "$AGENT" ] && echo "No TRACE=/INDEX= given — opening most recent."
-    echo "Hint: ./shannon trace WORKSPACE=$WORKSPACE LIST=true  # see all"
+    echo "Hint: ./gandalf trace WORKSPACE=$WORKSPACE LIST=true  # see all"
   fi
 
   # 9. Pull the META row for the picked trace so we can show / link the agent.

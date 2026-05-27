@@ -1,8 +1,16 @@
+# Gandalf — AI Pentester (TECHVIFY fork)
+
 > [!IMPORTANT]
-> **This is a fork of [KeygraphHQ/shannon](https://github.com/KeygraphHQ/shannon).**
-> Customized to extend Shannon's web pentest pipeline with **Mobile (Appium)** and **API-only** testing modes — giving a QA/security team a single unified framework for web, mobile, and API audits.
+> **Gandalf** is a fork of [KeygraphHQ/shannon](https://github.com/KeygraphHQ/shannon),
+> rebranded and extended by **TECHVIFY** to give a single QA/security team one
+> unified framework for **web, mobile, API, and network** security audits.
 >
-> Jump to: [What's different from upstream?](#whats-different-from-upstream) · [Usage (new modes)](#usage-new-modes) · [Original README](#-what-is-shannon)
+> - Original work © 2025 Keygraph, Inc. — licensed under [AGPL-3.0](./LICENSE).
+> - Modifications © 2026 TECHVIFY — also AGPL-3.0. See [NOTICE.md](./NOTICE.md)
+>   for the full change log and AGPL Section 5(a) attribution.
+>
+> Jump to: [What's different from upstream?](#whats-different-from-upstream) ·
+> [Usage (new modes)](#usage-new-modes) · [Original README](#-what-is-gandalf)
 
 ## What's different from upstream?
 
@@ -34,7 +42,7 @@ Test HTTP APIs directly — no browser, no mobile app.
 - Accepts workspaces without git checkpoints (graybox workspaces are not git repos by default)
 - Previously hard-failed on "no checkpoints" even when deliverables existed on disk
 
-### 🔧 Modified CLI Script (`shannon`)
+### 🔧 Modified CLI Script (`gandalf`)
 - Detects mode from `APP=` (mobile) or `pipeline.target: api` in config (API)
 - `REPO=` validation applies to every mode
 - Exports `APPIUM_URL`, `APPIUM_DEVICE_ID` env vars into the Docker container
@@ -47,7 +55,7 @@ Test HTTP APIs directly — no browser, no mobile app.
 
 ### 🔧 Modified Claude Executor
 - Added `PATH`, `HOME`, `LANG`, `LC_ALL` to SDK env var passthrough — fixes "command not found" for `ls`, `curl`, `jq` in the Bash tool
-- Added `api-only` as MCP mapping value — API agents get only `shannon-helper` MCP (no Playwright/Appium subprocess)
+- Added `api-only` as MCP mapping value — API agents get only `gandalf-helper` MCP (no Playwright/Appium subprocess)
 
 ### 🔧 Modified Dockerfile
 - Added `jq` runtime dependency (required by API agents for JSON parsing)
@@ -57,13 +65,60 @@ Test HTTP APIs directly — no browser, no mobile app.
 - `configs/mobile-test-androidapp1.yaml` — example for testing a specific Android app (vulnerable notes app)
 - `configs/api-graybox-sample.yaml` — API graybox template
 
+### ✨ New: Multi-Persona Execution
+Run a single pipeline across multiple authenticated personas (admin, editor, viewer, …) to surface **cross-role IDOR** and **vertical privilege escalation** in one workflow.
+
+- Discovery runs once (shared); auth-mapper + vuln + exploit run once per persona in parallel
+- Authz exploit phase reads tokens from every persona to test cross-role boundaries
+- Persona-safe parallel execution; idempotent retries on failed agents
+- Per-persona browser profiles + Playwright traces — no cookie bleed between roles
+- Sample config: `configs/multi-persona-sample.yaml`
+
+### ✨ New: Remediation Verification
+Each run can re-test DevOps fix claims from a prior assessment.
+
+- Drop a markdown table under `./repos/<name>/remediation/` listing prior findings DevOps believes are fixed
+- The `report` agent re-probes every claim and renders a verdict (✅ fixed / ⚠️ partial / ❌ still vulnerable) into the final report
+- Folder absent or empty → run behaves as a first-round assessment (no verification section)
+- Schema + re-probe templates in `prompts/shared/_remediation-verification.txt`
+
+### ✨ New: Network Graybox Pipeline (v1)
+Test internal network infrastructure (Active Directory, services, protocols) with native CLI tools.
+
+- New `pipeline.target: network` mode
+- 15 agents: discovery → enumeration → auth-mapper → vuln×5 → exploit×5 → postex-sim → network-report
+- Drives nmap, NetExec, impacket, certipy, hashcat, BloodHound (via Docker Compose `ad` profile)
+- Optional relay sidecar (Responder + mitm6 + ntlmrelayx) — RoE-gated via `pipeline.network.relay.enabled`
+- Cloud assets explicitly **out of scope** — deferred to a future `cloud-graybox` tier
+- Prompts under `prompts/network/*.txt` + shared partials (`_attack-framework`, `_network-evidence-schema`, `_network-target`)
+
+### ✨ New: Playwright Trace Viewer
+Replay every browser action recorded by an agent, scoped by workspace / persona / agent.
+
+```bash
+./gandalf trace                                # most recent workspace
+./gandalf trace WORKSPACE=... LIST=true        # chronological list with owning agent
+./gandalf trace AGENT=xss-exploit              # filter by agent that produced the trace
+./gandalf trace WORKSPACE=... INDEX=3          # open the Nth trace from LIST
+./gandalf trace WORKSPACE=... INDEX=3 EVIDENCE=true  # print trace zip + agent log + deliverable
+```
+
+### 🔧 Rebrand: Shannon → Gandalf
+- CLI binary: `./shannon` → `./gandalf`
+- npm packages: `shannon` + `@shannon/mcp-server` → `gandalf` + `@gandalf/mcp-server`
+- MCP server name: `shannon-helper` → `gandalf-helper`
+- Temporal task queue: `shannon-pipeline` → `gandalf-pipeline`
+- Workflow ID format: `_shannon-{ts}` → `_gandalf-{ts}` (workspaces created before the rebrand can be listed but not resumed)
+- Docker env vars: `SHANNON_DOCKER` → `GANDALF_DOCKER`; `SHANNON_DISABLE_LOADER` → `GANDALF_DISABLE_LOADER`
+- Brand strings in report deliverables, splash screen (ANSI Shadow figlet), and all user-facing log lines
+
 ---
 
 ## Usage (new modes)
 
 ### Web (original, unchanged)
 ```bash
-./shannon start URL=https://example.com REPO=my-repo CONFIG=./configs/graybox-sample.yaml
+./gandalf start URL=https://example.com REPO=my-repo CONFIG=./configs/graybox-sample.yaml
 ```
 
 ### Mobile (new)
@@ -77,8 +132,8 @@ export ANDROID_HOME=~/Library/Android/sdk
 export ANDROID_SDK_ROOT=~/Library/Android/sdk
 appium --port 4723
 
-# Terminal 2 — run Shannon
-./shannon start \
+# Terminal 2 — run Gandalf
+./gandalf start \
   APP=com.example.app \
   DEVICE=emulator-5554 \
   REPO=my-mobile-target \
@@ -89,13 +144,13 @@ Optional: if the app is not installed on the emulator, pass `APK=/path/to/app.ap
 
 ### API-only (new)
 ```bash
-./shannon start \
+./gandalf start \
   URL=https://api.example.com \
   REPO=my-api-target \
   CONFIG=./configs/api-graybox-sample.yaml
 ```
 
-The config's `pipeline.target: api` switches Shannon into API-only mode — no browser, no emulator.
+The config's `pipeline.target: api` switches Gandalf into API-only mode — no browser, no emulator.
 
 ### Multi-persona testing (cross-role IDOR / privilege escalation)
 Provide a list of personas instead of a single credential pair. Discovery runs once (shared), auth-mapper + vuln/exploit run once per persona in parallel, and the authz exploit agent reads every persona's token bundle so cross-role IDOR and vertical privilege escalation can be tested in a single workflow run.
@@ -116,7 +171,7 @@ authentication:
 ```
 
 ```bash
-./shannon start URL=https://app.example.com REPO=my-target CONFIG=./configs/multi-persona-sample.yaml
+./gandalf start URL=https://app.example.com REPO=my-target CONFIG=./configs/multi-persona-sample.yaml
 ```
 
 Cost trade-off: 2 personas ≈ 1.5–2× the cost of a single-persona run (discovery is shared, auth + vuln + exploit run per persona). The payoff is detection of a class of authz bugs that a single-persona run literally cannot find — true cross-role data exposure.
@@ -125,7 +180,7 @@ Cost trade-off: 2 personas ≈ 1.5–2× the cost of a single-persona run (disco
 
 ### Resume (all modes)
 ```bash
-./shannon start URL=... CONFIG=... WORKSPACE=<existing-workspace-name>
+./gandalf start URL=... CONFIG=... WORKSPACE=<existing-workspace-name>
 ```
 
 ---
@@ -134,11 +189,11 @@ Cost trade-off: 2 personas ≈ 1.5–2× the cost of a single-persona run (disco
 
 ```
 Original upstream:
-  Shannon → Playwright MCP  → Browser     → Website         (web pentest)
+  Gandalf → Playwright MCP  → Browser     → Website         (web pentest)
 
 This fork adds:
-  Shannon → Appium MCP      → Appium server → Emulator     → Mobile app     (mobile pentest)
-  Shannon → shannon-helper  → Bash + curl  → HTTP endpoint  (API pentest)
+  Gandalf → Appium MCP      → Appium server → Emulator     → Mobile app     (mobile pentest)
+  Gandalf → gandalf-helper  → Bash + curl  → HTTP endpoint  (API pentest)
 ```
 
 Mobile and API pipelines follow the same 13-agent structure as web graybox (discovery → auth-mapper → 5 parallel vuln/exploit pairs → report), maximizing code reuse and keeping reporting format consistent across modes.
@@ -157,13 +212,13 @@ Mobile and API pipelines follow the same 13-agent structure as web graybox (disc
 
 <div align="center">
 
-<img src="./assets/github-banner.png" alt="Shannon — AI Pentester for Web Applications and APIs" width="100%">
+<img src="./assets/github-banner.png" alt="Gandalf — AI Pentester for Web Applications and APIs" width="100%">
 
-# Shannon — AI Pentester by Keygraph
+# Gandalf — AI Pentester by Keygraph
 
 <a href="https://trendshift.io/repositories/15604" target="_blank"><img src="https://trendshift.io/api/badge/repositories/15604" alt="KeygraphHQ%2Fshannon | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 
-Shannon is an autonomous, white-box AI pentester for web applications and APIs. <br />
+Gandalf is an autonomous, white-box AI pentester for web applications and APIs. <br />
 It analyzes your source code, identifies attack vectors, and executes real exploits to prove vulnerabilities before they reach production.
 
 ---
@@ -176,34 +231,34 @@ It analyzes your source code, identifies attack vectors, and executes real explo
 ---
 </div>
 
-## 🎯 What is Shannon?
+## 🎯 What is Gandalf?
 
-Shannon is an AI pentester developed by [Keygraph](https://keygraph.io). It performs white-box security testing of web applications and their underlying APIs by combining source code analysis with live exploitation.
+Gandalf is an AI pentester developed by [Keygraph](https://keygraph.io). It performs white-box security testing of web applications and their underlying APIs by combining source code analysis with live exploitation.
 
-Shannon analyzes your web application's source code to identify potential attack vectors, then uses browser automation and command-line tools to execute real exploits (injection attacks, authentication bypass, SSRF, XSS) against the running application and its APIs. Only vulnerabilities with a working proof-of-concept are included in the final report.
+Gandalf analyzes your web application's source code to identify potential attack vectors, then uses browser automation and command-line tools to execute real exploits (injection attacks, authentication bypass, SSRF, XSS) against the running application and its APIs. Only vulnerabilities with a working proof-of-concept are included in the final report.
 
-**Why Shannon Exists**
+**Why Gandalf Exists**
 
 Thanks to tools like Claude Code and Cursor, your team ships code non-stop. But your penetration test? That happens once a year. This creates a *massive* security gap. For the other 364 days, you could be unknowingly shipping vulnerabilities to production.
 
-Shannon closes that gap by providing on-demand, automated penetration testing that can run against every build or release.
+Gandalf closes that gap by providing on-demand, automated penetration testing that can run against every build or release.
 
 > [!NOTE]
-> **Shannon is part of the Keygraph Security and Compliance Platform**
+> **Gandalf is part of the Keygraph Security and Compliance Platform**
 >
-> Keygraph is an integrated security and compliance platform covering IAM, MDM, compliance automation (SOC 2, HIPAA), and application security. Shannon handles the AppSec layer. The broader platform automates evidence collection, audit readiness, and continuous compliance across multiple frameworks.
+> Keygraph is an integrated security and compliance platform covering IAM, MDM, compliance automation (SOC 2, HIPAA), and application security. Gandalf handles the AppSec layer. The broader platform automates evidence collection, audit readiness, and continuous compliance across multiple frameworks.
 >
 > **[Learn more at keygraph.io](https://keygraph.io)**
 
-## 🎬 Shannon in Action
+## 🎬 Gandalf in Action
 
-Shannon identified 20+ vulnerabilities in OWASP Juice Shop, including authentication bypass and database exfiltration. [Full report →](sample-reports/shannon-report-juice-shop.md)
+Gandalf identified 20+ vulnerabilities in OWASP Juice Shop, including authentication bypass and database exfiltration. [Full report →](sample-reports/shannon-report-juice-shop.md)
 
 ![Demo](assets/shannon-action.gif)
 
 ## ✨ Features
 
-- **Fully Autonomous Operation**: A single command launches the full pentest. Shannon handles 2FA/TOTP logins (including SSO), browser navigation, exploitation, and report generation without manual intervention.
+- **Fully Autonomous Operation**: A single command launches the full pentest. Gandalf handles 2FA/TOTP logins (including SSO), browser navigation, exploitation, and report generation without manual intervention.
 - **Reproducible Proof-of-Concept Exploits**: The final report contains only proven, exploitable findings with copy-and-paste PoCs. Vulnerabilities that cannot be exploited are not reported.
 - **OWASP Vulnerability Coverage**: Identifies and validates Injection, XSS, SSRF, and Broken Authentication/Authorization, with additional categories in development.
 - **Code-Aware Dynamic Testing**: Analyzes source code to guide attack strategy, then validates findings with live browser and CLI-based exploits against the running application.
@@ -212,26 +267,26 @@ Shannon identified 20+ vulnerabilities in OWASP Juice Shop, including authentica
 
 ## 📦 Product Line
 
-Shannon is developed by [Keygraph](https://keygraph.io) and available in two editions:
+Gandalf is developed by [Keygraph](https://keygraph.io) and available in two editions:
 
 | Edition | License | Best For |
 |---------|---------|----------|
-| **Shannon Lite** | AGPL-3.0 | Local testing of your own applications. |
-| **Shannon Pro** | Commercial | Organizations needing a single AppSec platform (SAST, SCA, secrets, business logic testing, autonomous pentesting) with CI/CD integration and self-hosted deployment. |
+| **Gandalf Lite** | AGPL-3.0 | Local testing of your own applications. |
+| **Gandalf Pro** | Commercial | Organizations needing a single AppSec platform (SAST, SCA, secrets, business logic testing, autonomous pentesting) with CI/CD integration and self-hosted deployment. |
 
-> **This repository contains Shannon Lite,** the core autonomous AI pentesting framework. **Shannon Pro** is Keygraph's all-in-one AppSec platform, combining SAST, SCA, secrets scanning, business logic security testing, and autonomous AI pentesting in a single correlated workflow. Every finding is validated with a working proof-of-concept exploit.
+> **This repository contains Gandalf Lite,** the core autonomous AI pentesting framework. **Gandalf Pro** is Keygraph's all-in-one AppSec platform, combining SAST, SCA, secrets scanning, business logic security testing, and autonomous AI pentesting in a single correlated workflow. Every finding is validated with a working proof-of-concept exploit.
 
 > [!IMPORTANT]
-> **White-box only.** Shannon Lite is designed for **white-box (source-available)** application security testing.  
+> **White-box only.** Gandalf Lite is designed for **white-box (source-available)** application security testing.  
 > It expects access to your application's source code and repository layout.
 
-### Shannon Pro: Architecture Overview
+### Gandalf Pro: Architecture Overview
 
-Shannon Pro is an all-in-one application security platform that replaces the need to stitch together separate SAST, SCA, secrets scanning, and pentesting tools. It operates as a two-stage pipeline: agentic static analysis of the codebase, followed by autonomous AI penetration testing. Findings from both stages are cross-referenced and correlated, so every reported vulnerability has a working proof-of-concept exploit and a precise source code location.
+Gandalf Pro is an all-in-one application security platform that replaces the need to stitch together separate SAST, SCA, secrets scanning, and pentesting tools. It operates as a two-stage pipeline: agentic static analysis of the codebase, followed by autonomous AI penetration testing. Findings from both stages are cross-referenced and correlated, so every reported vulnerability has a working proof-of-concept exploit and a precise source code location.
 
 **Stage 1: Agentic Static Analysis**
 
-Shannon Pro transforms the codebase into a Code Property Graph (CPG) combining the AST, control flow graph, and program dependence graph. It then runs five analysis capabilities:
+Gandalf Pro transforms the codebase into a Code Property Graph (CPG) combining the AST, control flow graph, and program dependence graph. It then runs five analysis capabilities:
 
 - **Data Flow Analysis (SAST)**: Identifies sources (user input, API requests) and sinks (SQL queries, command execution), then traces paths between them. At each node, an LLM evaluates whether the specific sanitization applied is sufficient for the specific vulnerability in context, rather than relying on a hard-coded allowlist of safe functions.
 - **Point Issue Detection (SAST)**: LLM-based detection of single-location vulnerabilities: weak cryptography, hardcoded credentials, insecure configuration, missing security headers, weak RNG, disabled certificate validation, and overly permissive CORS.
@@ -241,7 +296,7 @@ Shannon Pro transforms the codebase into a Code Property Graph (CPG) combining t
 
 **Stage 2: Autonomous Dynamic Penetration Testing**
 
-The same multi-agent pentest pipeline as Shannon Lite (reconnaissance, parallel vulnerability analysis, parallel exploitation, reporting), enhanced with static findings injected into the exploitation queue. Static findings are mapped to Shannon's five attack domains (Injection, XSS, SSRF, Auth, Authz), and exploit agents attempt real proof-of-concept attacks against the running application for each finding.
+The same multi-agent pentest pipeline as Gandalf Lite (reconnaissance, parallel vulnerability analysis, parallel exploitation, reporting), enhanced with static findings injected into the exploitation queue. Static findings are mapped to Gandalf's five attack domains (Injection, XSS, SSRF, Auth, Authz), and exploit agents attempt real proof-of-concept attacks against the running application for each finding.
 
 **Static-Dynamic Correlation**
 
@@ -249,9 +304,9 @@ This is the core differentiator. A data flow vulnerability identified in static 
 
 **Deployment Model**
 
-Shannon Pro supports a self-hosted runner model (similar to GitHub Actions self-hosted runners). The data plane, which handles code access and all LLM API calls, runs entirely within the customer's infrastructure using the customer's own API keys. Source code never leaves the customer's network. The Keygraph control plane handles job orchestration, scan scheduling, and the reporting UI, receiving only aggregate findings.
+Gandalf Pro supports a self-hosted runner model (similar to GitHub Actions self-hosted runners). The data plane, which handles code access and all LLM API calls, runs entirely within the customer's infrastructure using the customer's own API keys. Source code never leaves the customer's network. The Keygraph control plane handles job orchestration, scan scheduling, and the reporting UI, receiving only aggregate findings.
 
-| Capability | Shannon Lite | Shannon Pro (All-in-One AppSec) |
+| Capability | Gandalf Lite | Gandalf Pro (All-in-One AppSec) |
 | --- | --- | --- |
 | **Licensing** | AGPL-3.0 | Commercial |
 | **Static Analysis** | Code review prompting | Full agentic SAST, SCA, secrets, business logic testing |
@@ -262,22 +317,22 @@ Shannon Pro supports a self-hosted runner model (similar to GitHub Actions self-
 | **Deployment** | CLI | Managed cloud or self-hosted runner |
 | **Boundary Analysis** | None | Automatic service boundary detection with team routing |
 
-[Full technical details →](./SHANNON-PRO.md)
+[Full technical details →](./GANDALF-PRO.md)
 
 ## 📑 Table of Contents
 
-- [Shannon — AI Pentester by Keygraph](#shannon--ai-pentester-by-keygraph)
-  - [🎯 What is Shannon?](#-what-is-shannon)
-  - [🎬 Shannon in Action](#-shannon-in-action)
+- [Gandalf — AI Pentester by Keygraph](#gandalf--ai-pentester-by-keygraph)
+  - [🎯 What is Gandalf?](#-what-is-gandalf)
+  - [🎬 Gandalf in Action](#-gandalf-in-action)
   - [✨ Features](#-features)
   - [📦 Product Line](#-product-line)
-    - [Shannon Pro: Architecture Overview](#shannon-pro-architecture-overview)
+    - [Gandalf Pro: Architecture Overview](#gandalf-pro-architecture-overview)
   - [📑 Table of Contents](#-table-of-contents)
   - [🚀 Setup \& Usage Instructions](#-setup--usage-instructions)
     - [Prerequisites](#prerequisites)
     - [Quick Start](#quick-start)
     - [Monitoring Progress](#monitoring-progress)
-    - [Stopping Shannon](#stopping-shannon)
+    - [Stopping Gandalf](#stopping-gandalf)
     - [Usage Examples](#usage-examples)
     - [Workspaces and Resuming](#workspaces-and-resuming)
     - [Prepare Your Repository](#prepare-your-repository)
@@ -324,7 +379,7 @@ Shannon Pro supports a self-hosted runner model (similar to GitHub Actions self-
     - [Community Resources](#community-resources)
     - [Stay Connected](#stay-connected)
   - [💬 Get in Touch](#-get-in-touch)
-    - [Shannon Pro](#shannon-pro)
+    - [Gandalf Pro](#gandalf-pro)
 
 ---
 
@@ -343,7 +398,7 @@ Shannon Pro supports a self-hosted runner model (similar to GitHub Actions self-
 ### Quick Start
 
 ```bash
-# 1. Clone Shannon
+# 1. Clone Gandalf
 git clone https://github.com/KeygraphHQ/shannon.git
 cd shannon
 
@@ -360,83 +415,83 @@ CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 EOF
 
 # 3. Run a pentest
-./shannon start URL=https://your-app.com REPO=your-repo
+./gandalf start URL=https://your-app.com REPO=your-repo
 ```
 
-Shannon will build the containers, start the workflow, and return a workflow ID. The pentest runs in the background.
+Gandalf will build the containers, start the workflow, and return a workflow ID. The pentest runs in the background.
 
 ### Monitoring Progress
 
 ```bash
 # View real-time worker logs
-./shannon logs
+./gandalf logs
 
 # Query a specific workflow's progress
-./shannon query ID=shannon-1234567890
+./gandalf query ID=gandalf-1234567890
 
 # Open the Temporal Web UI for detailed monitoring
 open http://localhost:8233
 ```
 
-### Stopping Shannon
+### Stopping Gandalf
 
 ```bash
 # Stop all containers (preserves workflow data)
-./shannon stop
+./gandalf stop
 
 # Full cleanup (removes all data)
-./shannon stop CLEAN=true
+./gandalf stop CLEAN=true
 ```
 
 ### Usage Examples
 
 ```bash
 # Basic pentest
-./shannon start URL=https://example.com REPO=repo-name
+./gandalf start URL=https://example.com REPO=repo-name
 
 # With a configuration file
-./shannon start URL=https://example.com REPO=repo-name CONFIG=./configs/my-config.yaml
+./gandalf start URL=https://example.com REPO=repo-name CONFIG=./configs/my-config.yaml
 
 # Custom output directory
-./shannon start URL=https://example.com REPO=repo-name OUTPUT=./my-reports
+./gandalf start URL=https://example.com REPO=repo-name OUTPUT=./my-reports
 
 # Named workspace
-./shannon start URL=https://example.com REPO=repo-name WORKSPACE=q1-audit
+./gandalf start URL=https://example.com REPO=repo-name WORKSPACE=q1-audit
 
 # List all workspaces
-./shannon workspaces
+./gandalf workspaces
 ```
 
 ### Workspaces and Resuming
 
-Shannon supports **workspaces** that allow you to resume interrupted or failed runs without re-running completed agents.
+Gandalf supports **workspaces** that allow you to resume interrupted or failed runs without re-running completed agents.
 
 **How it works:**
-- Every run creates a workspace in `audit-logs/` (auto-named by default, e.g. `example-com_shannon-1771007534808`)
+- Every run creates a workspace in `audit-logs/` (auto-named by default, e.g. `example-com_gandalf-1771007534808`)
 - Use `WORKSPACE=<name>` to give your run a custom name for easier reference
-- To resume any run, pass its workspace name via `WORKSPACE=` — Shannon detects which agents completed successfully and picks up where it left off
+- To resume any run, pass its workspace name via `WORKSPACE=` — Gandalf detects which agents completed successfully and picks up where it left off
 - Each agent's progress is checkpointed via git commits, so resumed runs start from a clean, validated state
 
 ```bash
 # Start with a named workspace
-./shannon start URL=https://example.com REPO=repo-name WORKSPACE=my-audit
+./gandalf start URL=https://example.com REPO=repo-name WORKSPACE=my-audit
 
 # Resume the same workspace (skips completed agents)
-./shannon start URL=https://example.com REPO=repo-name WORKSPACE=my-audit
+./gandalf start URL=https://example.com REPO=repo-name WORKSPACE=my-audit
 
 # Resume an auto-named workspace from a previous run
-./shannon start URL=https://example.com REPO=repo-name WORKSPACE=example-com_shannon-1771007534808
+./gandalf start URL=https://example.com REPO=repo-name WORKSPACE=example-com_gandalf-1771007534808
 
 # List all workspaces and their status
-./shannon workspaces
+./gandalf workspaces
 ```
 
 > [!NOTE]
-> The `URL` must match the original workspace URL when resuming. Shannon will reject mismatched URLs to prevent cross-target contamination.
+> The `URL` must match the original workspace URL when resuming. Gandalf will reject mismatched URLs to prevent cross-target contamination.
 
 ### Prepare Your Repository
 
-Shannon expects target repositories to be placed under the `./repos/` directory at the project root. The `REPO` flag refers to a folder name inside `./repos/`. Copy the repository you want to scan into `./repos/`, or clone it directly there:
+Gandalf expects target repositories to be placed under the `./repos/` directory at the project root. The `REPO` flag refers to a folder name inside `./repos/`. Copy the repository you want to scan into `./repos/`, or clone it directly there:
 
 ```bash
 git clone https://github.com/your-org/your-repo.git ./repos/your-repo
@@ -464,7 +519,7 @@ git clone https://github.com/your-org/api.git
 
 *Native (Git Bash):*
 
-Install [Git for Windows](https://git-scm.com/install/windows) and run Shannon from **Git Bash** with Docker Desktop installed.
+Install [Git for Windows](https://git-scm.com/install/windows) and run Gandalf from **Git Bash** with Docker Desktop installed.
 
 *WSL2 (Recommended):*
 
@@ -489,14 +544,14 @@ See [WSL basic commands](https://learn.microsoft.com/en-us/windows/wsl/basic-com
 
 **Step 2: Install Docker Desktop on Windows** and enable **WSL2 backend** under *Settings > General > Use the WSL 2 based engine*.
 
-**Step 3: Clone and run Shannon inside WSL.** Type `wsl -d <distro-name>` in PowerShell or CMD and press Enter to open a WSL terminal.
+**Step 3: Clone and run Gandalf inside WSL.** Type `wsl -d <distro-name>` in PowerShell or CMD and press Enter to open a WSL terminal.
 
 ```bash
 # Inside WSL terminal
 git clone https://github.com/KeygraphHQ/shannon.git
 cd shannon
 cp .env.example .env  # Edit with your API key
-./shannon start URL=https://your-app.com REPO=your-repo
+./gandalf start URL=https://your-app.com REPO=your-repo
 ```
 
 To access the Temporal Web UI, run `ip addr` inside WSL to find your WSL IP address, then navigate to `http://<wsl-ip>:8233` in your Windows browser.
@@ -516,7 +571,7 @@ Works out of the box with Docker Desktop installed.
 Docker containers cannot reach `localhost` on your host machine. Use `host.docker.internal` in place of `localhost`:
 
 ```bash
-./shannon start URL=http://host.docker.internal:3000 REPO=repo-name
+./gandalf start URL=http://host.docker.internal:3000 REPO=repo-name
 ```
 
 ### Configuration (Optional)
@@ -581,7 +636,7 @@ pipeline:
 
 ### AWS Bedrock
 
-Shannon also supports [Amazon Bedrock](https://aws.amazon.com/bedrock/) instead of using an Anthropic API key.
+Gandalf also supports [Amazon Bedrock](https://aws.amazon.com/bedrock/) instead of using an Anthropic API key.
 
 #### Quick Setup
 
@@ -598,17 +653,17 @@ ANTHROPIC_MEDIUM_MODEL=us.anthropic.claude-sonnet-4-6
 ANTHROPIC_LARGE_MODEL=us.anthropic.claude-opus-4-6
 ```
 
-2. Run Shannon as usual:
+2. Run Gandalf as usual:
 
 ```bash
-./shannon start URL=https://example.com REPO=repo-name
+./gandalf start URL=https://example.com REPO=repo-name
 ```
 
-Shannon uses three model tiers: **small** (`claude-haiku-4-5-20251001`) for summarization, **medium** (`claude-sonnet-4-6`) for security analysis, and **large** (`claude-opus-4-6`) for deep reasoning. Set `ANTHROPIC_SMALL_MODEL`, `ANTHROPIC_MEDIUM_MODEL`, and `ANTHROPIC_LARGE_MODEL` to the Bedrock model IDs for your region.
+Gandalf uses three model tiers: **small** (`claude-haiku-4-5-20251001`) for summarization, **medium** (`claude-sonnet-4-6`) for security analysis, and **large** (`claude-opus-4-6`) for deep reasoning. Set `ANTHROPIC_SMALL_MODEL`, `ANTHROPIC_MEDIUM_MODEL`, and `ANTHROPIC_LARGE_MODEL` to the Bedrock model IDs for your region.
 
 ### Google Vertex AI
 
-Shannon also supports [Google Vertex AI](https://cloud.google.com/vertex-ai) instead of using an Anthropic API key.
+Gandalf also supports [Google Vertex AI](https://cloud.google.com/vertex-ai) instead of using an Anthropic API key.
 
 #### Quick Setup
 
@@ -635,17 +690,17 @@ ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
 ANTHROPIC_LARGE_MODEL=claude-opus-4-6
 ```
 
-4. Run Shannon as usual:
+4. Run Gandalf as usual:
 
 ```bash
-./shannon start URL=https://example.com REPO=repo-name
+./gandalf start URL=https://example.com REPO=repo-name
 ```
 
 Set `CLOUD_ML_REGION=global` for global endpoints, or a specific region like `us-east5`. Some models may not be available on global endpoints — see the [Vertex AI Model Garden](https://console.cloud.google.com/vertex-ai/model-garden) for region availability.
 
 ### Custom Base URL
 
-Shannon supports pointing the SDK at any Anthropic-compatible endpoint (proxies, gateways, etc.) via `ANTHROPIC_BASE_URL`.
+Gandalf supports pointing the SDK at any Anthropic-compatible endpoint (proxies, gateways, etc.) via `ANTHROPIC_BASE_URL`.
 
 #### Quick Setup
 
@@ -664,17 +719,17 @@ ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
 ANTHROPIC_LARGE_MODEL=claude-opus-4-6
 ```
 
-3. Run Shannon as usual:
+3. Run Gandalf as usual:
 
 ```bash
-./shannon start URL=https://example.com REPO=repo-name
+./gandalf start URL=https://example.com REPO=repo-name
 ```
 
 ### [EXPERIMENTAL - UNSUPPORTED] Router Mode (Alternative Providers)
 
-Shannon can experimentally route requests through alternative AI providers using claude-code-router. This mode is not officially supported and is intended primarily for:
+Gandalf can experimentally route requests through alternative AI providers using claude-code-router. This mode is not officially supported and is intended primarily for:
 
-* **Model experimentation** — try Shannon with GPT-5.2 or Gemini 3–family models
+* **Model experimentation** — try Gandalf with GPT-5.2 or Gemini 3–family models
 
 #### Quick Setup
 
@@ -693,7 +748,7 @@ ROUTER_DEFAULT=openai,gpt-5.2  # provider,model format
 2. Run with `ROUTER=true`:
 
 ```bash
-./shannon start URL=https://example.com REPO=repo-name ROUTER=true
+./gandalf start URL=https://example.com REPO=repo-name ROUTER=true
 ```
 
 #### Experimental Models
@@ -705,7 +760,7 @@ ROUTER_DEFAULT=openai,gpt-5.2  # provider,model format
 
 #### Disclaimer
 
-This feature is experimental and unsupported. Output quality depends heavily on the model. Shannon is built on top of the Anthropic Agent SDK and is optimized and primarily tested with Anthropic Claude models. Alternative providers may produce inconsistent results (including failing early phases like Recon) depending on the model and routing setup.
+This feature is experimental and unsupported. Output quality depends heavily on the model. Gandalf is built on top of the Anthropic Agent SDK and is optimized and primarily tested with Anthropic Claude models. Alternative providers may produce inconsistent results (including failing early phases like Recon) depending on the model and routing setup.
 
 ### Output and Results
 
@@ -781,7 +836,7 @@ Sample penetration test reports from industry-standard vulnerable applications:
 
 ## 📈 Benchmark
 
-Shannon Lite scored **96.15% (100/104 exploits)** on a hint-free, source-aware variant of the XBOW security benchmark.
+Gandalf Lite scored **96.15% (100/104 exploits)** on a hint-free, source-aware variant of the XBOW security benchmark.
 
 **[Full results with detailed agent logs and per-challenge pentest reports →](./xben-benchmark-results/README.md)**
 
@@ -789,7 +844,7 @@ Shannon Lite scored **96.15% (100/104 exploits)** on a hint-free, source-aware v
 
 ## 🏗️ Architecture
 
-Shannon uses a multi-agent architecture that combines white-box source code analysis with dynamic exploitation across four phases:
+Gandalf uses a multi-agent architecture that combines white-box source code analysis with dynamic exploitation across four phases:
 
 ```
                     ┌──────────────────────┐
@@ -821,13 +876,13 @@ Shannon uses a multi-agent architecture that combines white-box source code anal
 
 ### Architectural Overview
 
-Shannon uses Anthropic's Claude Agent SDK as its reasoning engine within a multi-agent architecture. The system combines white-box source code analysis with black-box dynamic exploitation, managed by an orchestrator across four phases. The architecture is designed for minimal false positives through a "no exploit, no report" policy.
+Gandalf uses Anthropic's Claude Agent SDK as its reasoning engine within a multi-agent architecture. The system combines white-box source code analysis with black-box dynamic exploitation, managed by an orchestrator across four phases. The architecture is designed for minimal false positives through a "no exploit, no report" policy.
 
 ---
 
 #### **Phase 1: Reconnaissance**
 
-The first phase builds a comprehensive map of the application's attack surface. Shannon analyzes the source code and integrates with tools like Nmap and Subfinder to understand the tech stack and infrastructure. Simultaneously, it performs live application exploration via browser automation to correlate code-level insights with real-world behavior, producing a detailed map of all entry points, API endpoints, and authentication mechanisms for the next phase.
+The first phase builds a comprehensive map of the application's attack surface. Gandalf analyzes the source code and integrates with tools like Nmap and Subfinder to understand the tech stack and infrastructure. Simultaneously, it performs live application exploration via browser automation to correlate code-level insights with real-world behavior, producing a detailed map of all entry points, API endpoints, and authentication mechanisms for the next phase.
 
 #### **Phase 2: Vulnerability Analysis**
 
@@ -844,46 +899,46 @@ The final phase compiles all validated findings into a professional, actionable 
 
 ## 📋 Coverage and Roadmap
 
-For detailed information about Shannon's security testing coverage and development roadmap, see our [Coverage and Roadmap](./COVERAGE.md) documentation.
+For detailed information about Gandalf's security testing coverage and development roadmap, see our [Coverage and Roadmap](./COVERAGE.md) documentation.
 
 ## ⚠️ Disclaimers
 
 ### Important Usage Guidelines & Disclaimers
 
-Please review the following guidelines carefully before using Shannon (Lite). As a user, you are responsible for your actions and assume all liability.
+Please review the following guidelines carefully before using Gandalf (Lite). As a user, you are responsible for your actions and assume all liability.
 
 #### **1. Potential for Mutative Effects & Environment Selection**
 
 This is not a passive scanner. The exploitation agents are designed to **actively execute attacks** to confirm vulnerabilities. This process can have mutative effects on the target application and its data.
 
 > [!WARNING]
-> **⚠️ DO NOT run Shannon on production environments.**
+> **⚠️ DO NOT run Gandalf on production environments.**
 >
 > - It is intended exclusively for use on sandboxed, staging, or local development environments where data integrity is not a concern.
 > - Potential mutative effects include, but are not limited to: creating new users, modifying or deleting data, compromising test accounts, and triggering unintended side effects from injection attacks.
 
 #### **2. Legal & Ethical Use**
 
-Shannon is designed for legitimate security auditing purposes only.
+Gandalf is designed for legitimate security auditing purposes only.
 
 > [!CAUTION]
-> **You must have explicit, written authorization** from the owner of the target system before running Shannon.
+> **You must have explicit, written authorization** from the owner of the target system before running Gandalf.
 >
-> Unauthorized scanning and exploitation of systems you do not own is illegal and can be prosecuted under laws such as the Computer Fraud and Abuse Act (CFAA). Keygraph is not responsible for any misuse of Shannon.
+> Unauthorized scanning and exploitation of systems you do not own is illegal and can be prosecuted under laws such as the Computer Fraud and Abuse Act (CFAA). Keygraph is not responsible for any misuse of Gandalf.
 
 #### **3. LLM & Automation Caveats**
 
 - **Verification is Required**: While significant engineering has gone into our "proof-by-exploitation" methodology to eliminate false positives, the underlying LLMs can still generate hallucinated or weakly-supported content in the final report. **Human oversight is essential** to validate the legitimacy and severity of all reported findings.
-- **Comprehensiveness**: The analysis in Shannon Lite may not be exhaustive due to the inherent limitations of LLM context windows. For a more comprehensive, graph-based analysis of your entire codebase, **Shannon Pro** leverages its advanced data flow analysis engine to ensure deeper and more thorough coverage.
+- **Comprehensiveness**: The analysis in Gandalf Lite may not be exhaustive due to the inherent limitations of LLM context windows. For a more comprehensive, graph-based analysis of your entire codebase, **Gandalf Pro** leverages its advanced data flow analysis engine to ensure deeper and more thorough coverage.
 
 #### **4. Scope of Analysis**
 
-- **Targeted Vulnerabilities**: The current version of Shannon Lite specifically targets the following classes of *exploitable* vulnerabilities:
+- **Targeted Vulnerabilities**: The current version of Gandalf Lite specifically targets the following classes of *exploitable* vulnerabilities:
   - Broken Authentication & Authorization
   - Injection
   - Cross-Site Scripting (XSS)
   - Server-Side Request Forgery (SSRF)
-- **What Shannon Lite Does Not Cover**: This list is not exhaustive of all potential security risks. Shannon Lite's "proof-by-exploitation" model means it will not report on issues it cannot actively exploit, such as vulnerable third-party libraries or insecure configurations. These types of deep static-analysis findings are a core focus of the advanced analysis engine in **Shannon Pro**.
+- **What Gandalf Lite Does Not Cover**: This list is not exhaustive of all potential security risks. Gandalf Lite's "proof-by-exploitation" model means it will not report on issues it cannot actively exploit, such as vulnerable third-party libraries or insecure configurations. These types of deep static-analysis findings are a core focus of the advanced analysis engine in **Gandalf Pro**.
 
 #### **5. Cost & Performance**
 
@@ -892,22 +947,22 @@ Shannon is designed for legitimate security auditing purposes only.
 
 #### **6. Windows Antivirus False Positives**
 
-Windows Defender may flag files in `xben-benchmark-results/` or `deliverables/` as malware. These are false positives caused by exploit code in the reports. Add an exclusion for the Shannon directory in Windows Defender, or use Docker/WSL2.
+Windows Defender may flag files in `xben-benchmark-results/` or `deliverables/` as malware. These are false positives caused by exploit code in the reports. Add an exclusion for the Gandalf directory in Windows Defender, or use Docker/WSL2.
 
 #### **7. Security Considerations**
 
-Shannon Lite is designed for scanning repositories and applications you own or have explicit permission to test. Do not point it at untrusted or adversarial codebases. Like any AI-powered tool that reads source code, Shannon Lite is susceptible to prompt injection from content in the scanned repository.
+Gandalf Lite is designed for scanning repositories and applications you own or have explicit permission to test. Do not point it at untrusted or adversarial codebases. Like any AI-powered tool that reads source code, Gandalf Lite is susceptible to prompt injection from content in the scanned repository.
 
 
 ## 📜 License
 
-Shannon Lite is released under the [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE).
+Gandalf Lite is released under the [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE).
 
-Shannon is open source (AGPL v3). This license allows you to:
+Gandalf is open source (AGPL v3). This license allows you to:
 - Use it freely for all internal security testing.
 - Modify the code privately for internal use without sharing your changes.
 
-The AGPL's sharing requirements primarily apply to organizations offering Shannon as a public or managed service (such as a SaaS platform). In those specific cases, any modifications made to the core software must be open-sourced.
+The AGPL's sharing requirements primarily apply to organizations offering Gandalf as a public or managed service (such as a SaaS platform). In those specific cases, any modifications made to the core software must be open-sourced.
 
 
 ## 👥 Community & Support
@@ -919,7 +974,7 @@ Book a free 15-min session for hands-on help with bugs, deployments, or config q
 → US/EU: 10:00 AM PT  |  Asia: 2:00 PM IST
 → [Book a slot](https://cal.com/george-flores-keygraph/shannon-community-office-hours)
 
-💬 [Join our Discord](https://discord.gg/cmctpMBXwE) to ask questions, share feedback, and connect with other Shannon users.
+💬 [Join our Discord](https://discord.gg/cmctpMBXwE) to ask questions, share feedback, and connect with other Gandalf users.
 
 **Contributing:** At this time, we're not accepting external code contributions (PRs).  
 Issues are welcome for bug reports and feature requests.
@@ -937,13 +992,13 @@ Issues are welcome for bug reports and feature requests.
 
 ## 💬 Get in Touch
 
-### Shannon Pro
+### Gandalf Pro
 
-Shannon Pro is Keygraph's all-in-one AppSec platform. For organizations that need unified SAST, SCA, and autonomous pentesting with static-dynamic correlation, CI/CD integration, or self-hosted deployment, see the [Shannon Pro technical overview](./SHANNON-PRO.md).
+Gandalf Pro is Keygraph's all-in-one AppSec platform. For organizations that need unified SAST, SCA, and autonomous pentesting with static-dynamic correlation, CI/CD integration, or self-hosted deployment, see the [Gandalf Pro technical overview](./GANDALF-PRO.md).
 
 <p align="center">
   <a href="https://docs.google.com/forms/d/e/1FAIpQLSf-cPZcWjlfBJ3TCT8AaWpf8ztsw3FaHzJE4urr55KdlQs6cQ/viewform?usp=header" target="_blank">
-    <img src="https://img.shields.io/badge/📋%20Shannon%20Pro%20Inquiry-4285F4?style=for-the-badge&logo=google&logoColor=white" alt="Shannon Pro Inquiry">
+    <img src="https://img.shields.io/badge/📋%20Gandalf%20Pro%20Inquiry-4285F4?style=for-the-badge&logo=google&logoColor=white" alt="Gandalf Pro Inquiry">
   </a>
 </p>
 

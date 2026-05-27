@@ -56,7 +56,7 @@ Write this content to `/tmp/header.md` in step 3. Fill placeholders from `mobile
 | Target | {package ID, platform, app version} |
 | Report Version | {auto: 1.0 if claims_count == 0, else next minor — e.g. 1.1, 1.2} |
 | Assessment Cadence | {previous run date if recorded in claims, else "N/A"} → {current date} |
-| Prepared By | Shannon AI Pentest Pipeline (mobile DAST) |
+| Prepared By | Gandalf AI Pentest Pipeline (mobile DAST) |
 | Reviewed By | TBD |
 | Classification | CONFIDENTIAL |
 {remediation_claims_row — render only when claims_count > 0:
@@ -65,7 +65,7 @@ Write this content to `/tmp/header.md` in step 3. Fill placeholders from `mobile
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
-| {version} | {current date} | Shannon | {"Initial first-round assessment" when claims_count == 0, else "Re-test of {N} DevOps remediation claims; see section 8.5"} |
+| {version} | {current date} | Gandalf | {"Initial first-round assessment" when claims_count == 0, else "Re-test of {N} DevOps remediation claims; see section 8.5"} |
 
 ## 1. Executive Summary
 - **Target:** [App name / package ID from mobile_discovery.md]
@@ -103,7 +103,7 @@ This assessment follows the standards listed below. Each finding in Section 7 is
 | Static inspection | UI hierarchy dump, package manager queries |
 | API probing | curl, custom scripts |
 | Traffic interception | mitmproxy (when available) |
-| AI-driven analysis | Shannon mobile pipeline (mobile-discovery → mobile-auth-mapper → 5 vuln agents → 5 exploit agents) |
+| AI-driven analysis | Gandalf mobile pipeline (mobile-discovery → mobile-auth-mapper → 5 vuln agents → 5 exploit agents) |
 
 ## 3. Attack Surface Summary
 {From mobile_discovery.md: summarize total API endpoints, screens, technologies, schema availability.}

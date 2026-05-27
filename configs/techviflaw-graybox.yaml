@@ -1,4 +1,4 @@
-# Shannon Gray-Box Penetration Test Configuration
+# Gandalf Gray-Box Penetration Test Configuration
 # Target: Vulnerability Simulation App (Techviflaw)
 
 pipeline:

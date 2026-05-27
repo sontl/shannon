@@ -1,3 +1,10 @@
+// Copyright (C) 2026 TECHVIFY
+//
+// This file is part of Gandalf, a fork of Shannon Lite by Keygraph, Inc.
+// (https://github.com/KeygraphHQ/shannon). It is released under the
+// GNU Affero General Public License version 3, the same license as the
+// upstream project. See LICENSE and NOTICE.md at the repository root.
+
 /**
  * Auth Map Aggregator Service
  *

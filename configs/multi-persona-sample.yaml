@@ -4,7 +4,7 @@
 #  from every persona to test cross-role boundaries.
 #
 #  Run with:
-#    ./shannon start URL=https://app.example.com REPO=my-target CONFIG=./configs/multi-persona-sample.yaml
+#    ./gandalf start URL=https://app.example.com REPO=my-target CONFIG=./configs/multi-persona-sample.yaml
 
 pipeline:
   target: web

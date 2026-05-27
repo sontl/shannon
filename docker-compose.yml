@@ -54,7 +54,7 @@ services:
       - seccomp:unconfined
 
   # Optional: claude-code-router for multi-model support
-  # Start with: ROUTER=true ./shannon start ...
+  # Start with: ROUTER=true ./gandalf start ...
   router:
     image: node:20-slim
     profiles: ["router"]  # Only starts when explicitly requested
@@ -81,5 +81,100 @@ services:
       retries: 5
       start_period: 30s
 
+  # ============================================================
+  # Network graybox sidecars (gated by Docker Compose profiles).
+  # Start with: `docker compose --profile ad up` etc.
+  # PR 1 wires the services; the agents that USE them ship in PR 3 (AD),
+  # PR 4 (relay), PR 5 (creds) per plan inherited-marinating-hearth.md.
+  # ============================================================
+
+  # BloodHound CE — AD graph analysis. Agents upload bloodhound-python collector
+  # output via the HTTP API; agents query attack paths via Cypher/REST.
+  # Used by: network-ad-vuln, network-ad-exploit, network-postex-sim.
+  bloodhound:
+    profiles: ["ad", "network"]
+    image: specterops/bloodhound:latest
+    environment:
+      bhe_database_connection: "user=bloodhound password=${BH_DB_PASS:-bloodhound} dbname=bloodhound host=bh-postgres port=5432"
+      bhe_neo4j_connection: "bolt://neo4j:${NEO4J_PASS:-bloodhound}@bh-neo4j:7687/"
+      bhe_default_admin_principal_name: "${BH_ADMIN_USER:-admin}"
+      bhe_default_admin_email_address: "${BH_ADMIN_EMAIL:-admin@bloodhound.local}"
+      bhe_default_admin_password: "${BH_ADMIN_PASS:-changeMe!}"
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      bh-postgres:
+        condition: service_healthy
+      bh-neo4j:
+        condition: service_healthy
+
+  bh-neo4j:
+    profiles: ["ad", "network"]
+    image: neo4j:5
+    environment:
+      NEO4J_AUTH: "neo4j/${NEO4J_PASS:-bloodhound}"
+    volumes:
+      - bh-neo4j-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "neo4j status || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  bh-postgres:
+    profiles: ["ad", "network"]
+    image: postgres:16
+    environment:
+      POSTGRES_USER: bloodhound
+      POSTGRES_PASSWORD: ${BH_DB_PASS:-bloodhound}
+      POSTGRES_DB: bloodhound
+    volumes:
+      - bh-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bloodhound"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # OpenVAS / Greenbone Vulnerability Manager — FOSS compliance-grade scanner.
+  # Heavy: first start syncs the vuln DB (~30 minutes). Agents call the GMP API.
+  # Used by: network-services-vuln (when pipeline.network.scanners.vuln_scanner = openvas).
+  openvas:
+    profiles: ["vuln-scan", "network"]
+    image: immauss/openvas:latest
+    environment:
+      PASSWORD: ${OPENVAS_ADMIN_PASS:-admin}
+      RELAYHOST: "noop"
+    ports:
+      - "127.0.0.1:9390:9390"   # GMP
+      - "127.0.0.1:9392:9392"   # GSA (web UI, debugging only)
+    volumes:
+      - openvas-data:/data
+
+  # Network relay sidecar — Responder + mitm6 + ntlmrelayx. Multicast traffic
+  # (LLMNR / NBT-NS / mDNS) requires network_mode: host. NET_RAW + NET_ADMIN
+  # caps are needed for raw sockets + interface manipulation.
+  # Used by: network-relay-exploit (only when pipeline.network.relay.enabled = true).
+  #
+  # PR 1: this service is wired but the image isn't built. Add a Dockerfile.relay
+  # in PR 4 (Responder + mitm6 + ntlmrelayx + time-boxed entrypoint) and replace
+  # the placeholder image reference below.
+  network-relay:
+    profiles: ["relay", "network"]
+    image: ${NETWORK_RELAY_IMAGE:-gandalf-network-relay:local}
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - ./audit-logs:/audit-logs
+    environment:
+      RELAY_DURATION_MINUTES: ${RELAY_DURATION_MINUTES:-30}
+      INTERFACE: ${RELAY_INTERFACE:-eth0}
+
 volumes:
   temporal-data:
+  bh-neo4j-data:
+  bh-postgres-data:
+  openvas-data:

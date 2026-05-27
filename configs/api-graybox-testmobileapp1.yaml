@@ -3,14 +3,14 @@ pipeline:
   mode: graybox
   max_concurrent_pipelines: 3
 
-# Schema hint — Shannon discovery agent sẽ ingest trước.
+# Schema hint — Gandalf discovery agent sẽ ingest trước.
 # FastAPI auto-export tại /openapi.json.
 context:
   schemas:
     - url: /openapi.json
       type: openapi
 
-# Login API mode: Shannon sẽ POST /api/login, lấy token, gắn header.
+# Login API mode: Gandalf sẽ POST /api/login, lấy token, gắn header.
 authentication:
   login_type: api
   credentials:

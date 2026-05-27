@@ -5,7 +5,7 @@
 // as published by the Free Software Foundation.
 
 /**
- * Temporal activities for Shannon agent execution.
+ * Temporal activities for Gandalf agent execution.
  *
  * Each activity wraps service calls with Temporal-specific concerns:
  * - Heartbeat loop (2s interval) to signal worker liveness
@@ -62,7 +62,7 @@ export interface ActivityInput {
   outputPath?: string;
   pipelineTestingMode?: boolean;
   pipelineMode?: 'whitebox' | 'graybox';
-  pipelineTarget?: 'web' | 'mobile' | 'api';
+  pipelineTarget?: 'web' | 'mobile' | 'api' | 'network';
   workflowId: string;
   sessionId: string;
   // Mobile-specific fields
@@ -449,6 +449,28 @@ export async function runApiReportAgent(input: ActivityInput): Promise<AgentMetr
   return runAgentActivity('api-report', input);
 }
 
+// === Network graybox activities ===
+//
+// PR1 ships discovery, enumeration, auth-mapper, and report. The 10 vuln/exploit
+// agents + postex-sim are added in subsequent PRs (PR2-PR6 per plan
+// inherited-marinating-hearth.md).
+
+export async function runNetworkDiscoveryAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('network-discovery', input);
+}
+
+export async function runNetworkEnumerationAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('network-enumeration', input);
+}
+
+export async function runNetworkAuthMapperAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('network-auth-mapper', input);
+}
+
+export async function runNetworkReportAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('network-report', input);
+}
+
 /**
  * Preflight validation activity.
  *
@@ -530,7 +552,9 @@ export async function assembleReportActivity(input: ActivityInput): Promise<void
     ? 'api' as const
     : pipelineTarget === 'mobile'
       ? 'mobile' as const
-      : pipelineMode;
+      : pipelineTarget === 'network'
+        ? 'network' as const
+        : pipelineMode;
   const logger = createActivityLogger();
   logger.info('Assembling deliverables from specialist agents...');
   try {

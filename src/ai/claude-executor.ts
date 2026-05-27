@@ -15,7 +15,7 @@ import { Timer } from '../utils/metrics.js';
 import { formatTimestamp } from '../utils/formatting.js';
 import { AGENT_VALIDATORS, MCP_AGENT_MAPPING } from '../session-manager.js';
 import { AuditSession } from '../audit/index.js';
-import { createShannonHelperServer } from '../../mcp-server/dist/index.js';
+import { createGandalfHelperServer } from '../../mcp-server/dist/index.js';
 import { createAppiumTools } from '../../mcp-server/dist/appium/tools.js';
 import { AGENTS } from '../session-manager.js';
 import type { AgentName } from '../types/index.js';
@@ -29,7 +29,7 @@ import { resolveModel, type ModelTier } from './models.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 
 declare global {
-  var SHANNON_DISABLE_LOADER: boolean | undefined;
+  var GANDALF_DISABLE_LOADER: boolean | undefined;
 }
 
 export interface ClaudePromptResult {
@@ -54,7 +54,7 @@ interface StdioMcpServer {
   env: Record<string, string>;
 }
 
-type McpServer = ReturnType<typeof createShannonHelperServer> | StdioMcpServer;
+type McpServer = ReturnType<typeof createGandalfHelperServer> | StdioMcpServer;
 
 // Configures MCP servers for agent execution, with Docker-specific Chromium handling.
 // When personaName is provided, the Playwright user-data-dir is namespaced under
@@ -66,11 +66,11 @@ async function buildMcpServers(
   logger: ActivityLogger,
   personaName: string | undefined
 ): Promise<Record<string, McpServer>> {
-  // 1. Create the shannon-helper server (always present)
-  const shannonHelperServer = createShannonHelperServer(sourceDir);
+  // 1. Create the gandalf-helper server (always present)
+  const gandalfHelperServer = createGandalfHelperServer(sourceDir);
 
   const mcpServers: Record<string, McpServer> = {
-    'shannon-helper': shannonHelperServer,
+    'gandalf-helper': gandalfHelperServer,
   };
 
   // 2. Look up the agent's MCP mapping (Playwright or Appium)
@@ -78,12 +78,14 @@ async function buildMcpServers(
     const promptTemplate = AGENTS[agentName as AgentName].promptTemplate;
     const mcpName = MCP_AGENT_MAPPING[promptTemplate as keyof typeof MCP_AGENT_MAPPING] || null;
 
-    if (mcpName === 'api-only') {
-      // 3a. API agents use only shannon-helper — no browser/device automation
-      logger.info(`Assigned ${agentName} -> api-only (no MCP server, Bash+curl only)`);
+    if (mcpName === 'api-only' || mcpName === 'network-only') {
+      // 3a. API and network agents use only gandalf-helper — no browser/device automation.
+      // API agents reach the target over HTTP+curl; network agents drive native
+      // CLI tools (nmap, NetExec, impacket, certipy, hashcat, etc.) via Bash.
+      logger.info(`Assigned ${agentName} -> ${mcpName} (no MCP server, Bash + native tools only)`);
 
     } else if (mcpName && mcpName.startsWith('appium-')) {
-      // 3b. Configure Appium MCP for mobile agents (in-process, like shannon-helper)
+      // 3b. Configure Appium MCP for mobile agents (in-process, like gandalf-helper)
       logger.info(`Assigned ${agentName} -> ${mcpName} (Appium)`);
 
       const appiumUrl = process.env.APPIUM_URL || 'http://localhost:4723';
@@ -120,7 +122,7 @@ async function buildMcpServers(
         await fs.remove(path.join(userDataDir, marker)).catch(() => { /* best-effort */ });
       }
 
-      const isDocker = process.env.SHANNON_DOCKER === 'true';
+      const isDocker = process.env.GANDALF_DOCKER === 'true';
 
       // Per-action screenshots + DOM/network/console for replay. Trace ZIP
       // viewable with `npx playwright show-trace <file>`.
@@ -281,7 +283,7 @@ export async function runClaudePrompt(
   const execContext = detectExecutionContext(description);
   const progress = createProgressManager(
     { description, useCleanOutput: execContext.useCleanOutput },
-    global.SHANNON_DISABLE_LOADER ?? false
+    global.GANDALF_DISABLE_LOADER ?? false
   );
   const auditLogger = createAuditLogger(auditSession);
 
@@ -486,7 +488,7 @@ async function processMessageStream(
   for await (const message of query({ prompt: fullPrompt, options })) {
     // Heartbeat logging when loader is disabled
     const now = Date.now();
-    if (global.SHANNON_DISABLE_LOADER && now - lastHeartbeat > HEARTBEAT_INTERVAL) {
+    if (global.GANDALF_DISABLE_LOADER && now - lastHeartbeat > HEARTBEAT_INTERVAL) {
       logger.info(`[${Math.floor((now - timer.startTime) / 1000)}s] ${description} running... (Turn ${turnCount})`);
       lastHeartbeat = now;
     }

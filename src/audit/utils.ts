@@ -23,9 +23,9 @@ import type { SessionMetadata } from '../types/audit.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Get Shannon repository root
-const SHANNON_ROOT = path.resolve(__dirname, '..', '..');
-const AUDIT_LOGS_DIR = path.join(SHANNON_ROOT, 'audit-logs');
+// Get Gandalf repository root
+const GANDALF_ROOT = path.resolve(__dirname, '..', '..');
+const AUDIT_LOGS_DIR = path.join(GANDALF_ROOT, 'audit-logs');
 
 /**
  * Extract and sanitize hostname from URL for use in identifiers

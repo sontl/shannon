@@ -6,7 +6,7 @@
 // as published by the Free Software Foundation.
 
 /**
- * Temporal client for starting Shannon pentest pipeline workflows.
+ * Temporal client for starting Gandalf pentest pipeline workflows.
  *
  * Starts a workflow and optionally waits for completion with progress polling.
  *
@@ -20,7 +20,7 @@
  *   --config <path>       Configuration file path
  *   --output <path>       Output directory for audit logs
  *   --pipeline-testing    Use minimal prompts for fast testing
- *   --workflow-id <id>    Custom workflow ID (default: shannon-<timestamp>)
+ *   --workflow-id <id>    Custom workflow ID (default: gandalf-<timestamp>)
  *   --wait                Wait for workflow completion with progress polling
  *
  * Environment:
@@ -122,7 +122,7 @@ function isValidWorkspaceName(name: string): boolean {
 }
 
 function showUsage(): void {
-  console.log('\nShannon Temporal Client');
+  console.log('\nGandalf Temporal Client');
   console.log('Start a pentest pipeline workflow\n');
   console.log('Usage:');
   console.log(
@@ -135,7 +135,7 @@ function showUsage(): void {
   console.log('  --pipeline-testing    Use minimal prompts for fast testing');
   console.log('  --workspace <name>    Resume from existing workspace');
   console.log(
-    '  --workflow-id <id>    Custom workflow ID (default: shannon-<timestamp>)'
+    '  --workflow-id <id>    Custom workflow ID (default: gandalf-<timestamp>)'
   );
   console.log('  --wait                Wait for workflow completion with progress polling\n');
   console.log('Examples:');
@@ -160,6 +160,7 @@ interface CliArgs {
   resumeFromWorkspace?: string;
   isMobileTarget?: boolean;
   isApiTarget?: boolean;
+  isNetworkTarget?: boolean;
   app?: string;
   device?: string;
   apk?: string;
@@ -253,6 +254,7 @@ async function parseCliArgs(argv: string[]): Promise<CliArgs> {
 
   const isMobileTarget = app != null || (configPath ? await detectMobileTarget(configPath) : false);
   const isApiTarget = configPath ? await detectApiTarget(configPath) : false;
+  const isNetworkTarget = configPath ? await detectNetworkTarget(configPath) : false;
 
   if (!repoPath) {
     console.log('Error: --repo is required (documentation folder for the target)');
@@ -260,7 +262,9 @@ async function parseCliArgs(argv: string[]): Promise<CliArgs> {
     process.exit(1);
   }
 
-  if (!isMobileTarget && !webUrl) {
+  // Network mode addressing comes from pipeline.network.scope.targets in the
+  // config — webUrl is optional (treated as a documentation hint if provided).
+  if (!isMobileTarget && !isNetworkTarget && !webUrl) {
     console.log('Error: webUrl is required for web/api target mode');
     showUsage();
     process.exit(1);
@@ -273,6 +277,7 @@ async function parseCliArgs(argv: string[]): Promise<CliArgs> {
     waitForCompletion,
     ...(isMobileTarget && { isMobileTarget }),
     ...(isApiTarget && { isApiTarget }),
+    ...(isNetworkTarget && { isNetworkTarget }),
     ...(configPath && { configPath }),
     ...(outputPath && { outputPath }),
     ...(displayOutputPath && { displayOutputPath }),
@@ -301,7 +306,7 @@ async function resolveWorkspace(
     const prefix = args.isMobileTarget && args.app
       ? args.app.replace(/[^a-zA-Z0-9-]/g, '-')
       : sanitizeHostname(args.webUrl);
-    const workflowId = args.customWorkflowId || `${prefix}_shannon-${Date.now()}`;
+    const workflowId = args.customWorkflowId || `${prefix}_gandalf-${Date.now()}`;
     return {
       workflowId,
       sessionId: workflowId,
@@ -324,8 +329,8 @@ async function resolveWorkspace(
       console.log(`Terminated ${terminatedWorkflows.length} previous workflow(s)\n`);
     }
 
-    // 2. Validate target matches the workspace (skip for mobile — no URL to compare)
-    if (!args.isMobileTarget) {
+    // 2. Validate target matches the workspace (skip for mobile/network — no URL to compare)
+    if (!args.isMobileTarget && !args.isNetworkTarget) {
       const session = await readJson<SessionJson>(sessionPath);
       if (session.session.webUrl !== args.webUrl) {
         console.error('ERROR: URL mismatch with workspace');
@@ -355,7 +360,7 @@ async function resolveWorkspace(
   console.log(`Workspace: ${workspace}\n`);
 
   return {
-    workflowId: `${workspace}_shannon-${Date.now()}`,
+    workflowId: `${workspace}_gandalf-${Date.now()}`,
     sessionId: workspace,
     isResume: false,
     terminatedWorkflows: [],
@@ -379,6 +384,16 @@ async function detectApiTarget(configPath: string): Promise<boolean> {
   try {
     const config = await parseConfig(configPath);
     return config.pipeline?.target === 'api';
+  } catch {
+    return false;
+  }
+}
+
+/** Peek at config to detect network target before full validation. */
+async function detectNetworkTarget(configPath: string): Promise<boolean> {
+  try {
+    const config = await parseConfig(configPath);
+    return config.pipeline?.target === 'network';
   } catch {
     return false;
   }
@@ -488,6 +503,13 @@ function displayWorkflowInfo(args: CliArgs, workspace: WorkspaceResolution): voi
   } else if (args.isApiTarget) {
     console.log(`  API:        ${args.webUrl}`);
     console.log(`  Mode:       API-only (no browser/mobile)`);
+  } else if (args.isNetworkTarget) {
+    console.log(`  Target:     network (scope from config)`);
+    console.log(`  Repository: ${args.repoPath}`);
+    console.log(`  Mode:       Network graybox (no browser/mobile)`);
+    if (args.webUrl) {
+      console.log(`  Reference:  ${args.webUrl}`);
+    }
   } else {
     console.log(`  Target:     ${args.webUrl}`);
     console.log(`  Repository: ${args.repoPath}`);
@@ -511,7 +533,7 @@ function displayMonitoringInfo(args: CliArgs, workspace: WorkspaceResolution): v
 
   console.log('Monitor progress:');
   console.log(`  Web UI:  http://localhost:8233/namespaces/default/workflows/${workspace.workflowId}`);
-  console.log(`  Logs:    ./shannon logs ID=${workspace.workflowId}`);
+  console.log(`  Logs:    ./gandalf logs ID=${workspace.workflowId}`);
   console.log();
   console.log('Output:');
   console.log(`  Reports: ${outputDir}`);
@@ -602,7 +624,7 @@ async function startPipeline(): Promise<void> {
     const handle = await client.workflow.start<(input: PipelineInput) => Promise<PipelineState>>(
       'pentestPipelineWorkflow',
       {
-        taskQueue: 'shannon-pipeline',
+        taskQueue: 'gandalf-pipeline',
         workflowId: workspace.workflowId,
         args: [input],
       }

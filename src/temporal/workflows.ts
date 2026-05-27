@@ -5,7 +5,7 @@
 // as published by the Free Software Foundation.
 
 /**
- * Temporal workflow for Shannon pentest pipeline.
+ * Temporal workflow for Gandalf pentest pipeline.
  *
  * Orchestrates the penetration testing workflow:
  * 1. Pre-Reconnaissance (sequential)
@@ -42,7 +42,7 @@ import {
   type ResumeState,
 } from './shared.js';
 import type { AgentName, VulnType } from '../types/agents.js';
-import { GRAYBOX_AGENTS, WHITEBOX_AGENTS, MOBILE_GRAYBOX_AGENTS, API_GRAYBOX_AGENTS } from '../types/agents.js';
+import { GRAYBOX_AGENTS, WHITEBOX_AGENTS, MOBILE_GRAYBOX_AGENTS, API_GRAYBOX_AGENTS, NETWORK_GRAYBOX_AGENTS } from '../types/agents.js';
 import { toWorkflowSummary } from './summary-mapper.js';
 import { formatWorkflowError } from './workflow-errors.js';
 
@@ -225,11 +225,14 @@ export async function pentestPipelineWorkflow(
     // produced — silently wiping deliverables on every resume.
     const target = input.pipelineConfig?.target || 'web';
     const mode = input.pipelineConfig?.mode || 'graybox';
-    const agentsForMode = target === 'api'
-      ? API_GRAYBOX_AGENTS
-      : target === 'mobile'
-        ? MOBILE_GRAYBOX_AGENTS
-        : (mode === 'graybox' ? GRAYBOX_AGENTS : WHITEBOX_AGENTS);
+    const agentsForMode =
+      target === 'api'
+        ? API_GRAYBOX_AGENTS
+        : target === 'mobile'
+          ? MOBILE_GRAYBOX_AGENTS
+          : target === 'network'
+            ? NETWORK_GRAYBOX_AGENTS
+            : (mode === 'graybox' ? GRAYBOX_AGENTS : WHITEBOX_AGENTS);
 
     const incompleteAgents = agentsForMode.filter(
       (agentName) => !resumeState!.completedAgents.includes(agentName)
@@ -443,7 +446,8 @@ export async function pentestPipelineWorkflow(
     const isGraybox = input.pipelineConfig?.mode === 'graybox';
     const isMobile = input.pipelineConfig?.target === 'mobile';
     const isApi = input.pipelineConfig?.target === 'api';
-    log.info(`Pipeline routing: isGraybox=${isGraybox}, isMobile=${isMobile}, isApi=${isApi}, target=${input.pipelineConfig?.target}, mode=${input.pipelineConfig?.mode}`);
+    const isNetwork = input.pipelineConfig?.target === 'network';
+    log.info(`Pipeline routing: isGraybox=${isGraybox}, isMobile=${isMobile}, isApi=${isApi}, isNetwork=${isNetwork}, target=${input.pipelineConfig?.target}, mode=${input.pipelineConfig?.mode}`);
 
     // Run a single vuln→exploit pipeline for a specific persona.
     // vulnAgent/exploitAgent fields in the result are qualified ("<persona>/<agent>")
@@ -614,6 +618,14 @@ export async function pentestPipelineWorkflow(
       await runAuthMapperPhase('mobile-auth-mapper', a.runMobileAuthMapperAgent);
       await runPipelinePhase(buildMobileGrayboxPipelineConfigs());
 
+    } else if (isNetwork) {
+      log.info('Starting network graybox pipeline mode (PR1 scaffolding — discovery + enumeration + auth-mapper + report stub)');
+      await runSequentialPhase('discovery', 'network-discovery', a.runNetworkDiscoveryAgent);
+      await runSequentialPhase('enumeration', 'network-enumeration', a.runNetworkEnumerationAgent);
+      await runAuthMapperPhase('network-auth-mapper', a.runNetworkAuthMapperAgent);
+      // TODO(PR2-PR6): runPipelinePhase(buildNetworkGrayboxPipelineConfigs())
+      //                runSequentialPhase('postex-sim', 'network-postex-sim', ...)
+
     } else if (isGraybox) {
       log.info('Starting gray-box pipeline mode');
       await runSequentialPhase('discovery', 'discovery', a.runDiscoveryAgent);
@@ -664,6 +676,23 @@ export async function pentestPipelineWorkflow(
         await a.logPhaseTransition(activityInput, 'reporting', 'complete');
       } else {
         log.info('Skipping mobile-report (already complete)');
+        state.completedAgents.push(reportAgent);
+      }
+    } else if (isNetwork) {
+      const reportAgent = 'network-report';
+      if (!shouldSkip(reportAgent)) {
+        state.currentPhase = 'reporting';
+        state.currentAgent = reportAgent;
+        await a.logPhaseTransition(activityInput, 'reporting', 'start');
+
+        await a.assembleReportActivity(activityInput);
+        state.agentMetrics[reportAgent] = await a.runNetworkReportAgent(activityInput);
+        state.completedAgents.push(reportAgent);
+
+        await a.injectReportMetadataActivity(activityInput);
+        await a.logPhaseTransition(activityInput, 'reporting', 'complete');
+      } else {
+        log.info('Skipping network-report (already complete)');
         state.completedAgents.push(reportAgent);
       }
     } else if (isGraybox) {

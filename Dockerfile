@@ -22,10 +22,28 @@ RUN apk update && apk add --no-cache \
     npm \
     python3 \
     py3-pip \
+    python3-dev \
+    libffi-dev \
+    openssl-dev \
+    # Rust toolchain — required to build NetExec's `aardwolf` RDP dependency.
+    # Builder-only; the runtime image doesn't need it. Wolfi bundles cargo
+    # inside the rust package (no separate `cargo` apk available).
+    rust \
     ruby \
     ruby-dev \
     # Security tools available in Wolfi
     nmap \
+    samba-common-tools \
+    openldap-clients \
+    bind-tools \
+    nfs-utils \
+    net-snmp-tools \
+    # NOTE: masscan, arp-scan, hashcat, john are not in Wolfi's stable feed
+    # as of PR 1. They are not required for the PR 1 scaffolding (discovery,
+    # enumeration, auth-mapper, report). PR 2 (services) may add masscan from
+    # source if rustscan/naabu prove insufficient for /16+ scope; PR 5 (creds)
+    # adds hashcat from source for CPU cracking. Until then, network-discovery
+    # uses nmap + naabu (Go binary, installed below), which covers MVP scope.
     # Additional utilities
     bash
 
@@ -38,7 +56,11 @@ ENV CGO_ENABLED=1
 RUN mkdir -p $GOPATH/bin
 
 # Install Go-based security tools
-RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
+RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest && \
+    go install -v github.com/projectdiscovery/naabu/v2/cmd/naabu@latest && \
+    go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && \
+    GO111MODULE=on go install -v github.com/ropnop/kerbrute@latest
+
 # Install WhatWeb from GitHub (Ruby-based tool)
 RUN git clone --depth 1 https://github.com/urbanadventurer/WhatWeb.git /opt/whatweb && \
     chmod +x /opt/whatweb/whatweb && \
@@ -48,7 +70,21 @@ RUN git clone --depth 1 https://github.com/urbanadventurer/WhatWeb.git /opt/what
     chmod +x /usr/local/bin/whatweb
 
 # Install Python-based tools
-RUN pip3 install --no-cache-dir schemathesis
+# - schemathesis (existing, for API tier)
+# - impacket: AD/SMB/Kerberos exploitation suite (secretsdump, GetUserSPNs, GetNPUsers, psexec, wmiexec, etc.)
+# - certipy-ad: ADCS abuse (ESC1-ESC11+)
+# - bloodhound: AD attack-path collection (the bloodhound-python CLI)
+RUN pip3 install --no-cache-dir --break-system-packages \
+    schemathesis \
+    impacket \
+    certipy-ad \
+    bloodhound
+
+# NetExec is not on PyPI — install from upstream git. Per NetExec's official
+# install docs (https://www.netexec.wiki/getting-started/installation).
+# The `[full]` extras pull optional dependencies (kerberos, dpapi, etc.).
+RUN pip3 install --no-cache-dir --break-system-packages \
+    "git+https://github.com/Pennyw0rth/NetExec"
 
 # Runtime stage - Minimal production image
 FROM cgr.dev/chainguard/wolfi-base:latest AS runtime
@@ -64,8 +100,16 @@ RUN apk update && apk add --no-cache \
     ca-certificates \
     # Network libraries (runtime)
     libpcap \
-    # Security tools
+    # Security tools — web/api shared
     nmap \
+    # Security tools — network tier (PR 1 baseline; masscan/arp-scan/hashcat/john
+    # added from source in subsequent PRs when actually needed by vuln/exploit
+    # agents)
+    samba-common-tools \
+    openldap-clients \
+    bind-tools \
+    nfs-utils \
+    net-snmp-tools \
     # Language runtimes (minimal)
     nodejs-22 \
     npm \
@@ -90,6 +134,9 @@ RUN apk update && apk add --no-cache \
 
 # Copy Go binaries from builder
 COPY --from=builder /go/bin/subfinder /usr/local/bin/
+COPY --from=builder /go/bin/naabu /usr/local/bin/
+COPY --from=builder /go/bin/nuclei /usr/local/bin/
+COPY --from=builder /go/bin/kerbrute /usr/local/bin/
 
 # Copy WhatWeb from builder
 COPY --from=builder /opt/whatweb /opt/whatweb
@@ -98,9 +145,33 @@ COPY --from=builder /usr/local/bin/whatweb /usr/local/bin/whatweb
 # Install WhatWeb Ruby dependencies in runtime stage
 RUN gem install addressable
 
-# Copy Python packages from builder
+# Copy Python packages from builder. Wolfi's Python ships with /usr/lib/python3.12/
+# as the canonical site-packages location. The wildcard handles minor-version
+# drift if the base image bumps to 3.13. Includes:
+# - schemathesis (api tier)
+# - impacket, certipy-ad, bloodhound, netexec (network tier)
 COPY --from=builder /usr/lib/python3.*/site-packages /usr/lib/python3.12/site-packages
 COPY --from=builder /usr/bin/schemathesis /usr/bin/
+
+# Network-tier Python CLI entrypoints. impacket installs ~30 scripts; copy the
+# ones the network agents actually use. (Full set is available via /usr/lib/python.../site-packages
+# even when the entrypoint isn't in /usr/bin — agents can call `python3 -m impacket.examples.<name>`.)
+COPY --from=builder /usr/bin/GetUserSPNs.py /usr/bin/
+COPY --from=builder /usr/bin/GetNPUsers.py /usr/bin/
+COPY --from=builder /usr/bin/secretsdump.py /usr/bin/
+COPY --from=builder /usr/bin/psexec.py /usr/bin/
+COPY --from=builder /usr/bin/wmiexec.py /usr/bin/
+COPY --from=builder /usr/bin/atexec.py /usr/bin/
+COPY --from=builder /usr/bin/mssqlclient.py /usr/bin/
+COPY --from=builder /usr/bin/getST.py /usr/bin/
+COPY --from=builder /usr/bin/ticketer.py /usr/bin/
+COPY --from=builder /usr/bin/lookupsid.py /usr/bin/
+COPY --from=builder /usr/bin/GetADUsers.py /usr/bin/
+COPY --from=builder /usr/bin/ntlmrelayx.py /usr/bin/
+COPY --from=builder /usr/bin/certipy /usr/bin/
+COPY --from=builder /usr/bin/bloodhound-python /usr/bin/
+COPY --from=builder /usr/bin/nxc /usr/bin/
+COPY --from=builder /usr/bin/netexec /usr/bin/
 
 # Create non-root user for security
 RUN addgroup -g 1001 pentest && \
@@ -145,7 +216,7 @@ USER pentest
 # Set environment variables
 ENV NODE_ENV=production
 ENV PATH="/usr/local/bin:$PATH"
-ENV SHANNON_DOCKER=true
+ENV GANDALF_DOCKER=true
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
 ENV npm_config_cache=/tmp/.npm
@@ -159,4 +230,4 @@ RUN git config --global user.email "agent@localhost" && \
     git config --global --add safe.directory '*'
 
 # Set entrypoint
-ENTRYPOINT ["node", "dist/shannon.js"]
+ENTRYPOINT ["node", "dist/gandalf.js"]

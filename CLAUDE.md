@@ -23,22 +23,22 @@ mkdir -p ./repos/my-repo/docs && cp <your-docs>/*.md ./repos/my-repo/docs/
 # Whitebox: also populate ./repos/my-repo/src/ with the read-only source tree (e.g. `cp -R <your-src>/* ./repos/my-repo/src/`)
 
 # Run
-./shannon start URL=<url> REPO=my-repo
-./shannon start URL=<url> REPO=my-repo CONFIG=./configs/my-config.yaml
+./gandalf start URL=<url> REPO=my-repo
+./gandalf start URL=<url> REPO=my-repo CONFIG=./configs/my-config.yaml
 
 # Workspaces & Resume
-./shannon start URL=<url> REPO=my-repo WORKSPACE=my-audit    # New named workspace
-./shannon start URL=<url> REPO=my-repo WORKSPACE=my-audit    # Resume (same command)
-./shannon start URL=<url> REPO=my-repo WORKSPACE=<auto-name> # Resume auto-named run
-./shannon workspaces                                          # List all workspaces
+./gandalf start URL=<url> REPO=my-repo WORKSPACE=my-audit    # New named workspace
+./gandalf start URL=<url> REPO=my-repo WORKSPACE=my-audit    # Resume (same command)
+./gandalf start URL=<url> REPO=my-repo WORKSPACE=<auto-name> # Resume auto-named run
+./gandalf workspaces                                          # List all workspaces
 
 # Monitor
-./shannon logs                      # Real-time worker logs
+./gandalf logs                      # Real-time worker logs
 # Temporal Web UI: http://localhost:8233
 
 # Stop
-./shannon stop                      # Preserves workflow data
-./shannon stop CLEAN=true           # Full cleanup including volumes
+./gandalf stop                      # Preserves workflow data
+./gandalf stop CLEAN=true           # Full cleanup including volumes
 
 # Build
 npm run build
@@ -68,7 +68,7 @@ Durable workflow orchestration with crash recovery, queryable progress, intellig
 - `src/temporal/shared.ts` — Types, interfaces, query definitions
 ### Input Docs Folder (`./repos/<name>/`)
 
-Shannon treats `./repos/<name>/` as **read-only project documentation** — not source code. It is the agent's grounding material: overview, architecture, user flows, API specs, role matrix.
+Gandalf treats `./repos/<name>/` as **read-only project documentation** — not source code. It is the agent's grounding material: overview, architecture, user flows, API specs, role matrix.
 
 Preflight (`src/services/preflight.ts`) fails fast if `./repos/<name>/docs/` is missing or empty. Optional subfolders (`schemas/`, `api/`, `auth/`, `remediation/`) are not required but surfaced to agents when present. The `_project-docs.txt` shared partial (`prompts/shared/_project-docs.txt`) instructs agents to explore `{{REPO_PATH}}/` with Bash/Read and warns them not to write there.
 
@@ -76,13 +76,19 @@ Preflight (`src/services/preflight.ts`) fails fast if `./repos/<name>/docs/` is 
 
 ### Pipelines
 
-**Graybox Pipelines (default for all runs)** — No source code access. Dynamic DAST via browser/mobile/API probing.
+**Graybox Pipelines (default for all runs)** — No source code access. Dynamic DAST via browser/mobile/API probing or, for network, native CLI tools (nmap, NetExec, impacket, etc.).
 
 - **Web graybox** (agent prefix: none / `graybox-*`): discovery → auth-mapper → vuln×5 → exploit×5 → graybox-report. Prompts under `prompts/graybox/`.
 - **Mobile graybox** (agent prefix: `mobile-*`): mobile-discovery → mobile-auth-mapper → vuln×5 → exploit×5 → mobile-report. Prompts under `prompts/mobile/`.
 - **API graybox** (agent prefix: `api-*`): api-discovery → api-auth-mapper → vuln×5 → exploit×5 → api-report. Prompts under `prompts/api/`.
+- **Network graybox** (agent prefix: `network-*`, _v1 incremental — PR 1 ships scaffolding only_): network-discovery → network-enumeration → network-auth-mapper → vuln×5 (services/ad/protocols/creds/configs) → exploit×5 (services/ad/relay/creds/configs) → network-postex-sim → network-report. 15 agents total (vs 13 for other tiers: adds explicit enumeration + post-exploit simulation phases). Prompts under `prompts/network/`. Activated by `pipeline.target: network` + `pipeline.network.*` config block. Research source: `docs/research/network-pentest.md` (gitignored; archived per workspace). Cloud assets are explicitly OUT of scope for this tier — defer to a future `cloud-graybox` tier.
 
-Each tier: 2 discovery phases, 5 parallel vuln analysis agents, 5 parallel exploit agents (conditional on non-empty exploitation queue), and a report agent. Agent sets live in `src/types/agents.ts` as `GRAYBOX_AGENTS`, `MOBILE_GRAYBOX_AGENTS`, `API_GRAYBOX_AGENTS`.
+Each web/mobile/api tier: 2 discovery phases, 5 parallel vuln analysis agents, 5 parallel exploit agents (conditional on non-empty exploitation queue), and a report agent. Network tier: 3 sequential intel phases (discovery + enumeration + auth-mapper), 5×5 vuln/exploit parallel (network-native axes), 1 sequential postex-sim, 1 report — 15 agents total. Agent sets live in `src/types/agents.ts` as `GRAYBOX_AGENTS`, `MOBILE_GRAYBOX_AGENTS`, `API_GRAYBOX_AGENTS`, `NETWORK_GRAYBOX_AGENTS`.
+
+**Network tier sidecars** (gated by Docker Compose profiles in `docker-compose.yml`):
+- `profile: ad` — BloodHound CE + Neo4j + PostgreSQL (AD graph queries).
+- `profile: vuln-scan` — OpenVAS / GVM (FOSS compliance-grade scanner).
+- `profile: relay` — Responder + mitm6 + ntlmrelayx with `network_mode: host` (multicast for LLMNR/NBT-NS/IPv6 takeover; RoE-gated via `pipeline.network.relay.enabled`).
 
 **Whitebox** (`pipeline.mode: whitebox`) — Source-code analysis. Prompts (`prompts/pre-recon-code.txt`, `recon.txt`, `vuln-*.txt`, `exploit-*.txt`, `report-executive.txt`) and the `WHITEBOX_AGENTS` set run against `{{SRC_PATH}} = {repoPath}/src/` (read-only). Phase sequence: pre-recon → recon → vuln×5 → exploit×5 → report. These prompts also serve as the **gold-standard reference** for methodology/proof-obligation/evidence-quality sections in the graybox tiers.
 
@@ -166,14 +172,14 @@ Comments must be **timeless** — no references to this conversation, refactorin
 
 **Core Logic:** `src/session-manager.ts`, `src/ai/claude-executor.ts`, `src/config-parser.ts`, `src/services/`, `src/audit/`
 
-**Config:** `shannon` (CLI), `docker-compose.yml`, `configs/`, `prompts/`
+**Config:** `gandalf` (CLI), `docker-compose.yml`, `configs/`, `prompts/`
 
 ## Troubleshooting
 
 - **"Input path does not exist"** / **"Input docs folder missing or empty"** — `REPO` must be a folder name inside `./repos/`, not an absolute path. The folder must contain a non-empty `docs/` subfolder: `mkdir -p ./repos/my-repo/docs && cp <your-docs>/*.md ./repos/my-repo/docs/`.
 - **"Temporal not ready"** — Wait for health check or `docker compose logs temporal`
 - **Worker not processing** — Check `docker compose ps`
-- **Reset state** — `./shannon stop CLEAN=true`
+- **Reset state** — `./gandalf stop CLEAN=true`
 - **Local apps unreachable** — Use `host.docker.internal` instead of `localhost`
 - **Missing tools** — Use `PIPELINE_TESTING=true` to skip nmap/subfinder/whatweb (graceful degradation)
 - **Container permissions** — On Linux, may need `sudo` for docker commands

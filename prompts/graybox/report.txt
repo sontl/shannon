@@ -56,7 +56,7 @@ Write this content to `/tmp/header.md` in step 3. Fill placeholders from `graybo
 | Target | {{WEB_URL}} |
 | Report Version | {auto: 1.0 if claims_count == 0, else next minor — e.g. 1.1, 1.2} |
 | Assessment Cadence | {previous run date if recorded in claims, else "N/A"} → {current date} |
-| Prepared By | Shannon AI Pentest Pipeline (gray-box DAST) |
+| Prepared By | Gandalf AI Pentest Pipeline (gray-box DAST) |
 | Reviewed By | TBD |
 | Classification | CONFIDENTIAL |
 {remediation_claims_row — render only when claims_count > 0:
@@ -65,7 +65,7 @@ Write this content to `/tmp/header.md` in step 3. Fill placeholders from `graybo
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
-| {version} | {current date} | Shannon | {"Initial first-round assessment" when claims_count == 0, else "Re-test of {N} DevOps remediation claims; see section 7.5"} |
+| {version} | {current date} | Gandalf | {"Initial first-round assessment" when claims_count == 0, else "Re-test of {N} DevOps remediation claims; see section 7.5"} |
 
 ## 1. Executive Summary
 - **Target:** {{WEB_URL}}
@@ -99,7 +99,7 @@ This assessment follows the standards listed below. Each finding in Section 6 is
 | Reconnaissance | nmap, subfinder, whatweb, OpenAPI/GraphQL schema parsers |
 | Browser automation | Playwright (via Claude Agent SDK MCP) |
 | Manual probing | curl, custom Python scripts |
-| AI-driven analysis | Shannon graybox pipeline (discovery → auth-mapper → 5 vuln agents → 5 exploit agents) |
+| AI-driven analysis | Gandalf graybox pipeline (discovery → auth-mapper → 5 vuln agents → 5 exploit agents) |
 
 ## 3. Attack Surface Summary
 {From graybox_discovery.md: summarize total endpoints, technologies, schema availability.}

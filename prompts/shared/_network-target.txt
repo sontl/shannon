@@ -1,0 +1,31 @@
+<target>
+**Engagement mode:** {{ENGAGEMENT_MODE}}
+
+- `external` — perspective is the public Internet. No starting foothold, no internal network access. Focus: perimeter services, exposed admin panels, weak auth on Internet-facing portals, leaked credentials.
+- `internal` — assumed-breach / VPN-equivalent. You already have L3 reachability to the internal subnets. Focus: AD attacks, lateral movement, segmentation gaps, credential reuse.
+- `hybrid` — both perspectives in one engagement. External first, then pivot into internal once a foothold is established.
+
+**Network scope (in-scope and out-of-scope):**
+```
+{{NETWORK_SCOPE}}
+```
+
+You MUST stay within the in-scope list. Probing anything in the excludes list is a hard violation of Rules of Engagement and must not happen, even for "quick checks." If something looks reachable but isn't explicitly listed, treat it as out-of-scope and document it as such — do not pursue.
+
+**Active Directory context (when applicable):**
+- AD testing enabled: `{{AD_ENABLED}}`
+- Target domain: `{{AD_DOMAIN}}`
+- Domain controller IP: `{{DC_IP}}`
+
+If `AD_ENABLED` is `false`, skip every AD-specific technique. If it is `true` and the domain or DC IP is `(auto-discover)`, your first task is to discover them passively (DNS, NetBIOS, LDAP anonymous bind, certificate SAN).
+
+**Tooling configuration:**
+- Vulnerability scanner: `{{VULN_SCANNER}}` (one of: nuclei [FOSS, one-shot], openvas [FOSS, sidecar], nessus [licensed, sidecar], none)
+- Relay attack enabled: `{{RELAY_ENABLED}}` (when true, Responder/mitm6 sidecar is available; max runtime `{{RELAY_DURATION_MINUTES}}` minutes)
+- Hash cracking: enabled=`{{CRACKING_ENABLED}}`, compute=`{{CRACKING_COMPUTE}}`, budget=`{{CRACKING_BUDGET_MINUTES}}` min
+
+**Safety rails (NON-NEGOTIABLE):**
+- Lockout threshold: max `{{LOCKOUT_THRESHOLD}}` authentication attempts per user per hour. Exceed this and you may lock real accounts in a production directory — that is a serious customer-impact incident.
+- Coercion authorized against production DCs: `{{COERCION_AUTHORIZED}}`. If false, you MUST NOT fire PetitPotam / DFSCoerce / PrinterBug / ShadowCoerce against domain controllers. Enumeration of susceptibility is fine; firing the coercion is not.
+- Avoid production DCs: `{{AVOID_PRODUCTION_DCS}}`. If true, refuse any operation that could destabilize a DC (mass auth, repeated RPC, untested exploit).
+</target>

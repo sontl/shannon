@@ -175,10 +175,13 @@ async function interpolateVariables(
     }
 
     const isMobile = !!variables.bundleId || !!variables.appPath;
+    // Network engagements address scope via pipeline.network.scope.targets — webUrl
+    // is optional (treated as a documentation hint when provided).
+    const isNetwork = !!config?.network;
 
-    if (!variables || (!isMobile && !variables.webUrl) || !variables.repoPath || !variables.srcPath) {
+    if (!variables || (!isMobile && !isNetwork && !variables.webUrl) || !variables.repoPath || !variables.srcPath) {
       throw new PentestError(
-        'Variables must include repoPath and srcPath (and webUrl for web targets, or appPath for mobile)',
+        'Variables must include repoPath and srcPath (and webUrl for web targets, appPath for mobile, or network config for network targets)',
         'validation',
         false,
         { variables: Object.keys(variables || {}) }
@@ -244,6 +247,53 @@ async function interpolateVariables(
         result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, loginInstructions);
       } else {
         result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, '');
+      }
+
+      // Network-tier placeholders. Substituted whenever a network config is
+      // present (even on non-network tiers, the values default to safe blanks).
+      const net = config.network;
+      if (net) {
+        const scopeBlock = [
+          `Targets:\n${net.scope.targets.map((t) => `  - ${t}`).join('\n')}`,
+          net.scope.excludes && net.scope.excludes.length > 0
+            ? `Excludes (out-of-scope):\n${net.scope.excludes.map((t) => `  - ${t}`).join('\n')}`
+            : 'Excludes: (none)',
+        ].join('\n\n');
+        result = result
+          .replace(/{{ENGAGEMENT_MODE}}/g, net.engagement_mode)
+          .replace(/{{NETWORK_SCOPE}}/g, scopeBlock)
+          .replace(/{{AD_ENABLED}}/g, String(net.ad.enabled))
+          .replace(/{{AD_DOMAIN}}/g, net.ad.domain || '(auto-discover)')
+          .replace(/{{DC_IP}}/g, net.ad.dc_ip || '(auto-discover)')
+          .replace(/{{VULN_SCANNER}}/g, net.scanners.vuln_scanner)
+          .replace(/{{RELAY_ENABLED}}/g, String(net.relay.enabled))
+          .replace(/{{RELAY_DURATION_MINUTES}}/g, String(net.relay.duration_minutes))
+          .replace(/{{CRACKING_ENABLED}}/g, String(net.cracking.enabled))
+          .replace(/{{CRACKING_BUDGET_MINUTES}}/g, String(net.cracking.budget_minutes))
+          .replace(/{{CRACKING_COMPUTE}}/g, net.cracking.compute)
+          .replace(/{{LOCKOUT_THRESHOLD}}/g, String(net.safety.lockout_threshold))
+          .replace(/{{COERCION_AUTHORIZED}}/g, String(net.safety.coercion_authorized))
+          .replace(/{{AVOID_PRODUCTION_DCS}}/g, String(net.safety.avoid_production_dcs))
+          .replace(/{{ATTACK_VERSION}}/g, String(net.attack_framework.attack_version));
+      } else {
+        // Non-network tier — fill placeholders with safe blanks so the
+        // unresolved-placeholders warning at the end doesn't fire on shared partials.
+        result = result
+          .replace(/{{ENGAGEMENT_MODE}}/g, 'n/a')
+          .replace(/{{NETWORK_SCOPE}}/g, 'n/a — network tier not active')
+          .replace(/{{AD_ENABLED}}/g, 'false')
+          .replace(/{{AD_DOMAIN}}/g, '')
+          .replace(/{{DC_IP}}/g, '')
+          .replace(/{{VULN_SCANNER}}/g, 'none')
+          .replace(/{{RELAY_ENABLED}}/g, 'false')
+          .replace(/{{RELAY_DURATION_MINUTES}}/g, '0')
+          .replace(/{{CRACKING_ENABLED}}/g, 'false')
+          .replace(/{{CRACKING_BUDGET_MINUTES}}/g, '0')
+          .replace(/{{CRACKING_COMPUTE}}/g, 'cpu')
+          .replace(/{{LOCKOUT_THRESHOLD}}/g, '0')
+          .replace(/{{COERCION_AUTHORIZED}}/g, 'false')
+          .replace(/{{AVOID_PRODUCTION_DCS}}/g, 'true')
+          .replace(/{{ATTACK_VERSION}}/g, '17');
       }
     } else {
       // Replace the entire rules section with a clean message when no config provided

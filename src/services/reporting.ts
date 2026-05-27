@@ -53,14 +53,27 @@ const API_DELIVERABLES: DeliverableFile[] = [
   { name: 'Authorization', path: 'authz_exploitation_evidence.md', required: false },
 ];
 
+// Network tier ships in PR1 with only the discovery/enumeration/auth-mapper
+// deliverables; the 5× vuln/exploit pairs + postex-sim land in PR2-PR6 and
+// extend this list (services/ad/protocols/creds/configs exploitation evidence
+// plus network_postex_sim.md).
+const NETWORK_DELIVERABLES: DeliverableFile[] = [
+  { name: 'Network Discovery', path: 'network_discovery.md', required: false },
+  { name: 'Network Enumeration', path: 'network_enumeration.md', required: false },
+  { name: 'Network Auth Map', path: 'network_auth_map.md', required: false },
+  // TODO(PR2-PR6): services/ad/protocols/creds/configs exploitation evidence
+  //                + network_postex_sim.md
+];
+
 // Pure function: Assemble final report from specialist deliverables
 export async function assembleFinalReport(
   sourceDir: string,
   logger: ActivityLogger,
-  mode: 'whitebox' | 'graybox' | 'mobile' | 'api' = 'whitebox'
+  mode: 'whitebox' | 'graybox' | 'mobile' | 'api' | 'network' = 'whitebox'
 ): Promise<string> {
   const deliverableFiles = mode === 'api' ? API_DELIVERABLES
     : mode === 'mobile' ? MOBILE_DELIVERABLES
+    : mode === 'network' ? NETWORK_DELIVERABLES
     : mode === 'graybox' ? GRAYBOX_DELIVERABLES
     : WHITEBOX_DELIVERABLES;
 

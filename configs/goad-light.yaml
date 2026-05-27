@@ -1,0 +1,39 @@
+authentication:
+    login_type: form
+    login_url: http://placeholder.local
+    credentials:
+      username: ""
+      password: ""
+    success_condition:
+      type: url_contains
+      value: "/"
+  pipeline:
+    mode: graybox
+    target: network
+    network:
+      engagement_mode: internal
+      scope:
+        targets:
+          - "192.168.56.10"
+          - "192.168.56.11"
+          - "192.168.56.22"
+      ad:
+        enabled: true
+        domain: north.sevenkingdoms.local
+        dc_ip: 192.168.56.10
+      scanners:
+        vuln_scanner: nuclei
+      relay:
+        enabled: false       # Bật khi đã sẵn sàng test relay
+        duration_minutes: 30
+        network_mode: host
+      cracking:
+        enabled: true
+        budget_minutes: 30
+        compute: cpu
+      safety:
+        lockout_threshold: 3
+        coercion_authorized: false
+        avoid_production_dcs: false   # OK vì lab
+      attack_framework:
+        attack_version: 17

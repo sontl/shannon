@@ -459,6 +459,80 @@ async function validateMobilePrerequisites(
   return ok(undefined);
 }
 
+// === Network Validation ===
+
+async function validateNetworkPrerequisites(
+  configPath: string | undefined,
+  logger: ActivityLogger
+): Promise<Result<void, PentestError>> {
+  if (!configPath) {
+    return err(
+      new PentestError(
+        'Network target requires a config file with a "pipeline.network" section ' +
+          '(scope, ad, scanners, relay, cracking, safety, attack_framework).',
+        'config',
+        false,
+        {},
+        ErrorCode.CONFIG_VALIDATION_FAILED
+      )
+    );
+  }
+
+  const config = await parseConfig(configPath);
+  if (!config.pipeline?.network) {
+    return err(
+      new PentestError(
+        'Network target requires a "pipeline.network" section in the config file. ' +
+          'At minimum: engagement_mode, scope.targets, ad.enabled, scanners.vuln_scanner, ' +
+          'relay.enabled, cracking.enabled/budget_minutes/compute, safety.*, attack_framework.attack_version.',
+        'config',
+        false,
+        {},
+        ErrorCode.CONFIG_VALIDATION_FAILED
+      )
+    );
+  }
+
+  const net = config.pipeline.network;
+
+  // Cross-field checks the JSON schema can't express
+  if (net.scanners.vuln_scanner === 'nessus' && !net.scanners.nessus_license_env) {
+    return err(
+      new PentestError(
+        'pipeline.network.scanners.vuln_scanner = "nessus" requires nessus_license_env (the env var name holding the license key).',
+        'config',
+        false,
+        {},
+        ErrorCode.CONFIG_VALIDATION_FAILED
+      )
+    );
+  }
+
+  if (net.relay.enabled && net.relay.network_mode === 'bridge') {
+    logger.warn(
+      'pipeline.network.relay.enabled = true with network_mode = "bridge" — multicast traffic ' +
+        '(LLMNR/NBT-NS/mDNS) will not reach Responder/mitm6. Use network_mode: "host" for working relay.'
+    );
+  }
+
+  if (net.safety.coercion_authorized && net.safety.avoid_production_dcs) {
+    logger.warn(
+      'pipeline.network.safety: coercion_authorized = true AND avoid_production_dcs = true — coercion ' +
+        'primitives (PetitPotam/DFSCoerce/PrinterBug) will be skipped because avoid_production_dcs takes precedence.'
+    );
+  }
+
+  logger.info('Network prerequisites OK', {
+    engagement_mode: net.engagement_mode,
+    target_count: net.scope.targets.length,
+    ad_enabled: net.ad.enabled,
+    vuln_scanner: net.scanners.vuln_scanner,
+    relay_enabled: net.relay.enabled,
+    cracking_compute: net.cracking.compute,
+  });
+  return ok(undefined);
+}
+
 // === Preflight Orchestrator ===
 
 /**
@@ -467,8 +541,9 @@ async function validateMobilePrerequisites(
  * 1. Repository folder layout matches `pipelineMode` (skipped for mobile/api):
  *    - whitebox → non-empty `{repoPath}/src/`
  *    - graybox  → non-empty `{repoPath}/docs/`
+ *    - network  → non-empty `{repoPath}/docs/` (same as graybox; project docs grounding)
  * 2. Config file parses and validates (if configPath provided)
- * 3. Mobile prerequisites (if target is mobile)
+ * 3. Target-specific prerequisites (mobile or network)
  * 4. Credentials validate (API key, OAuth, or router mode)
  *
  * Returns on first failure.
@@ -496,11 +571,16 @@ export async function runPreflightChecks(
     }
   }
 
-  // 3. Mobile prerequisites (if target is mobile)
+  // 3. Target-specific prerequisites
   if (target === 'mobile') {
     const mobileResult = await validateMobilePrerequisites(configPath, logger);
     if (!mobileResult.ok) {
       return mobileResult;
+    }
+  } else if (target === 'network') {
+    const networkResult = await validateNetworkPrerequisites(configPath, logger);
+    if (!networkResult.ok) {
+      return networkResult;
     }
   }
 

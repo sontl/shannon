@@ -1,0 +1,58 @@
+<network_evidence_schema>
+Every finding emitted by a network-* vuln or exploit agent must conform to this JSON-friendly shape (you can write it as YAML, JSON, or a markdown table — the report agent normalizes it):
+
+```yaml
+findings:
+  - id: NET-001                       # stable, agent-scoped identifier
+    title: "Kerberoastable service account SVC_BACKUP"
+    severity: high                    # critical | high | medium | low | info
+    cvss:
+      version: "3.1"
+      score: 7.5
+      vector: "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"
+    affected:
+      hosts: [dc01.corp.local]
+      services: ["kerberos:88"]
+      domain: corp.local
+    attack_techniques: ["T1558.003"]  # MITRE ATT&CK IDs — at least one
+    attack_chain:                     # optional — when this finding is one hop in a chain
+      precondition: "User SVC_BACKUP has SPN registered (MSSQLSvc/dc01:1433)"
+      chain_id: "kerb-roast-to-da"
+      chain_position: 1               # 1, 2, 3...
+    description: |
+      Service account SVC_BACKUP has a Service Principal Name registered,
+      making it Kerberoastable. The captured TGS-REP is encrypted with the
+      account's NTLM hash and is offline-crackable.
+    evidence:
+      - type: hash
+        artifact_path: deliverables/evidence/ad/kerberoast-svc_backup.hash
+        extract: "$krb5tgs$23$*SVC_BACKUP$CORP.LOCAL$MSSQLSvc/dc01..."
+      - type: command_output
+        artifact_path: deliverables/evidence/ad/getuserspns-output.txt
+    remediation:
+      summary: "Rotate the SVC_BACKUP password to a 25+ char random string; convert to gMSA."
+      detail: |
+        Service account passwords short enough to crack offline are the
+        precondition for Kerberoasting. Either: (a) migrate to Group Managed
+        Service Accounts (gMSA), which Microsoft rotates automatically with
+        cryptographically strong 240-byte passwords; or (b) enforce a 25+
+        character random password and rotate it on a schedule.
+      effort: medium
+      references:
+        - "https://learn.microsoft.com/en-us/windows-server/security/group-managed-service-accounts/"
+        - "https://attack.mitre.org/techniques/T1558/003/"
+    detection_iocs:
+      event_ids: ["4769 with TicketEncryptionType 0x17 (RC4) on a DC"]
+      sigma_rules: ["win_susp_kerberoasting"]
+      network_signals: ["Volume of TGS-REQ from one source for many SPNs in short window"]
+    references:
+      - "https://attack.mitre.org/techniques/T1558/003/"
+      - "https://book.hacktricks.wiki/en/windows-hardening/active-directory-methodology/kerberoast.html"
+```
+
+**Required fields:** id, title, severity, affected.hosts, attack_techniques (≥1), description, evidence (≥1), remediation.summary.
+
+**Optional but encouraged:** cvss, attack_chain, detection_iocs, references.
+
+**Artifact storage:** every `evidence[].artifact_path` MUST point to a real file in `deliverables/evidence/<axis>/` (axes: services, ad, protocols, creds, configs). Never reference a path you have not actually written.
+</network_evidence_schema>

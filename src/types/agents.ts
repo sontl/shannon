@@ -76,11 +76,38 @@ export const API_GRAYBOX_AGENTS = [
   'api-report',
 ] as const;
 
+// Network graybox tier — 15 agents instead of the usual 13. Adds an explicit
+// `network-enumeration` phase between discovery and auth-mapper (the per-service
+// enumeration seam is semantically distinct from host/port discovery), and a
+// sequential `network-postex-sim` phase after the 5× exploit fan-out for
+// lateral-movement planning and post-exploit simulation. Note the
+// protocols-vuln → relay-exploit pairing — the natural "exploit" for protocol
+// weaknesses (LLMNR/NBT-NS/IPv6) is NTLM relay via Responder/mitm6/ntlmrelayx,
+// so the exploit slot is named for the technique, not the vuln axis.
+export const NETWORK_GRAYBOX_AGENTS = [
+  'network-discovery',
+  'network-enumeration',
+  'network-auth-mapper',
+  'network-services-vuln',
+  'network-ad-vuln',
+  'network-protocols-vuln',
+  'network-creds-vuln',
+  'network-configs-vuln',
+  'network-services-exploit',
+  'network-ad-exploit',
+  'network-relay-exploit',
+  'network-creds-exploit',
+  'network-configs-exploit',
+  'network-postex-sim',
+  'network-report',
+] as const;
+
 export const ALL_AGENTS = [
   ...WHITEBOX_AGENTS,
   ...GRAYBOX_AGENTS,
   ...MOBILE_GRAYBOX_AGENTS,
   ...API_GRAYBOX_AGENTS,
+  ...NETWORK_GRAYBOX_AGENTS,
 ] as const;
 
 /**
@@ -97,6 +124,11 @@ export type PlaywrightAgent =
   | 'playwright-agent5';
 
 export type ApiAgent = 'api-only';
+
+// Network agents have no browser/device driver — Bash + native CLI tools only.
+// Semantically distinct from `api-only` even though the downstream treatment
+// (no playwright/appium MCP) is identical.
+export type NetworkAgent = 'network-only';
 
 export type AppiumAgent =
   | 'appium-agent1'
@@ -131,8 +163,20 @@ export interface AgentDefinition {
 
 /**
  * Vulnerability types supported by the pipeline.
+ *
+ * Web / mobile / API tiers share the OWASP-derived axes
+ * (injection/xss/auth/ssrf/authz). Network tier uses its own
+ * domain-native axes (services/ad/protocols/creds/configs) to match
+ * how network findings actually cluster — Kerberoasting does not fit
+ * "injection" or "xss" without distortion. The two sets never collide
+ * (a single workflow run is bound to one target/tier).
  */
-export type VulnType = 'injection' | 'xss' | 'auth' | 'ssrf' | 'authz';
+export type VulnType =
+  | 'injection' | 'xss' | 'auth' | 'ssrf' | 'authz'
+  | 'services' | 'ad' | 'protocols' | 'creds' | 'configs';
+
+export type WebVulnType = 'injection' | 'xss' | 'auth' | 'ssrf' | 'authz';
+export type NetworkVulnType = 'services' | 'ad' | 'protocols' | 'creds' | 'configs';
 
 /**
  * Decision returned by queue validation for exploitation phase.

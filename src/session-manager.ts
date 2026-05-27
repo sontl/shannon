@@ -6,7 +6,7 @@
 
 import { path, fs } from 'zx';
 import { validateQueueAndDeliverable } from './services/queue-validation.js';
-import type { AgentName, AgentDefinition, PlaywrightAgent, AppiumAgent, ApiAgent, AgentValidator, VulnType } from './types/index.js';
+import type { AgentName, AgentDefinition, PlaywrightAgent, AppiumAgent, ApiAgent, NetworkAgent, AgentValidator, VulnType } from './types/index.js';
 import type { ActivityLogger } from './types/activity-logger.js';
 
 // Agent definitions according to PRD
@@ -398,6 +398,143 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     deliverableFilename: 'final_report.md',
     modelTier: 'small',
   },
+
+  // ============================================================
+  // Network Graybox Agents — 15 agents, network-native axis
+  // (services / ad / protocols / creds / configs) plus dedicated
+  // enumeration and post-exploit-simulation phases.
+  // ============================================================
+  'network-discovery': {
+    name: 'network-discovery',
+    displayName: 'Network Discovery Agent',
+    prerequisites: [],
+    promptTemplate: 'network/discovery',
+    deliverableFilename: 'network_discovery.md',
+    modelTier: 'medium',
+  },
+  'network-enumeration': {
+    name: 'network-enumeration',
+    displayName: 'Network Enumeration Agent',
+    prerequisites: ['network-discovery'],
+    promptTemplate: 'network/enumeration',
+    deliverableFilename: 'network_enumeration.md',
+    modelTier: 'medium',
+  },
+  'network-auth-mapper': {
+    name: 'network-auth-mapper',
+    displayName: 'Network Auth Mapper Agent',
+    prerequisites: ['network-enumeration'],
+    promptTemplate: 'network/auth-mapper',
+    deliverableFilename: 'network_auth_map.md',
+    modelTier: 'medium',
+  },
+  // Vulnerability analysis — 5 parallel agents on network-native axes.
+  'network-services-vuln': {
+    name: 'network-services-vuln',
+    displayName: 'Network Services Vuln Agent',
+    prerequisites: ['network-auth-mapper'],
+    promptTemplate: 'network/vuln-services',
+    deliverableFilename: 'services_vulnerabilities_deliverable.md',
+    modelTier: 'medium',
+  },
+  'network-ad-vuln': {
+    name: 'network-ad-vuln',
+    displayName: 'Network AD Vuln Agent',
+    prerequisites: ['network-auth-mapper'],
+    promptTemplate: 'network/vuln-ad',
+    deliverableFilename: 'ad_vulnerabilities_deliverable.md',
+    modelTier: 'medium',
+  },
+  'network-protocols-vuln': {
+    name: 'network-protocols-vuln',
+    displayName: 'Network Protocols Vuln Agent',
+    prerequisites: ['network-auth-mapper'],
+    promptTemplate: 'network/vuln-protocols',
+    deliverableFilename: 'protocols_vulnerabilities_deliverable.md',
+    modelTier: 'medium',
+  },
+  'network-creds-vuln': {
+    name: 'network-creds-vuln',
+    displayName: 'Network Creds Vuln Agent',
+    prerequisites: ['network-auth-mapper'],
+    promptTemplate: 'network/vuln-creds',
+    deliverableFilename: 'creds_vulnerabilities_deliverable.md',
+    modelTier: 'medium',
+  },
+  'network-configs-vuln': {
+    name: 'network-configs-vuln',
+    displayName: 'Network Configs Vuln Agent',
+    prerequisites: ['network-auth-mapper'],
+    promptTemplate: 'network/vuln-configs',
+    deliverableFilename: 'configs_vulnerabilities_deliverable.md',
+    modelTier: 'medium',
+  },
+  // Exploitation — 5 parallel agents. Note services/ad/relay/creds/configs;
+  // `relay` pairs with `protocols-vuln` (the natural exploit for protocol
+  // weaknesses is NTLM relay via Responder/mitm6/ntlmrelayx).
+  'network-services-exploit': {
+    name: 'network-services-exploit',
+    displayName: 'Network Services Exploit Agent',
+    prerequisites: ['network-services-vuln'],
+    promptTemplate: 'network/exploit-services',
+    deliverableFilename: 'services_exploitation_evidence.md',
+    modelTier: 'medium',
+  },
+  'network-ad-exploit': {
+    name: 'network-ad-exploit',
+    displayName: 'Network AD Exploit Agent',
+    prerequisites: ['network-ad-vuln'],
+    promptTemplate: 'network/exploit-ad',
+    deliverableFilename: 'ad_exploitation_evidence.md',
+    modelTier: 'medium',
+  },
+  'network-relay-exploit': {
+    name: 'network-relay-exploit',
+    displayName: 'Network Relay Exploit Agent',
+    prerequisites: ['network-protocols-vuln'],
+    promptTemplate: 'network/exploit-relay',
+    deliverableFilename: 'protocols_exploitation_evidence.md',
+    modelTier: 'medium',
+  },
+  'network-creds-exploit': {
+    name: 'network-creds-exploit',
+    displayName: 'Network Creds Exploit Agent',
+    prerequisites: ['network-creds-vuln'],
+    promptTemplate: 'network/exploit-creds',
+    deliverableFilename: 'creds_exploitation_evidence.md',
+    modelTier: 'medium',
+  },
+  'network-configs-exploit': {
+    name: 'network-configs-exploit',
+    displayName: 'Network Configs Exploit Agent',
+    prerequisites: ['network-configs-vuln'],
+    promptTemplate: 'network/exploit-configs',
+    deliverableFilename: 'configs_exploitation_evidence.md',
+    modelTier: 'medium',
+  },
+  // Post-exploit simulation — sequential, runs after the 5× exploit fan-out.
+  // Pulls credentials/artifacts captured by earlier exploits and produces
+  // BloodHound path analysis + lateral-movement narrative + persistence design
+  // (simulated, never deployed).
+  'network-postex-sim': {
+    name: 'network-postex-sim',
+    displayName: 'Network Post-Exploit Simulation Agent',
+    prerequisites: [
+      'network-services-exploit', 'network-ad-exploit', 'network-relay-exploit',
+      'network-creds-exploit', 'network-configs-exploit',
+    ],
+    promptTemplate: 'network/postex-sim',
+    deliverableFilename: 'network_postex_sim.md',
+    modelTier: 'medium',
+  },
+  'network-report': {
+    name: 'network-report',
+    displayName: 'Network Report Agent',
+    prerequisites: ['network-postex-sim'],
+    promptTemplate: 'network/report',
+    deliverableFilename: 'final_report.md',
+    modelTier: 'large',
+  },
 });
 
 // Phase names for metrics aggregation
@@ -462,6 +599,25 @@ export const AGENT_PHASE_MAP: Readonly<Record<AgentName, PhaseName>> = Object.fr
   'api-ssrf-exploit': 'exploitation',
   'api-authz-exploit': 'exploitation',
   'api-report': 'reporting',
+
+  // Network graybox — enumeration is grouped under 'discovery' for metrics
+  // purposes (PhaseName has no dedicated 'enumeration' bucket today).
+  // post-exploit simulation is grouped under 'exploitation'.
+  'network-discovery': 'discovery',
+  'network-enumeration': 'discovery',
+  'network-auth-mapper': 'auth-mapping',
+  'network-services-vuln': 'vulnerability-analysis',
+  'network-ad-vuln': 'vulnerability-analysis',
+  'network-protocols-vuln': 'vulnerability-analysis',
+  'network-creds-vuln': 'vulnerability-analysis',
+  'network-configs-vuln': 'vulnerability-analysis',
+  'network-services-exploit': 'exploitation',
+  'network-ad-exploit': 'exploitation',
+  'network-relay-exploit': 'exploitation',
+  'network-creds-exploit': 'exploitation',
+  'network-configs-exploit': 'exploitation',
+  'network-postex-sim': 'exploitation',
+  'network-report': 'reporting',
 });
 
 // Factory function for vulnerability queue validators
@@ -488,7 +644,7 @@ function createExploitValidator(vulnType: VulnType): AgentValidator {
 
 // MCP agent mapping - assigns each agent to a specific Playwright instance to prevent conflicts
 // Keys are promptTemplate values from AGENTS registry
-export const MCP_AGENT_MAPPING: Record<string, PlaywrightAgent | AppiumAgent | ApiAgent> = Object.freeze({
+export const MCP_AGENT_MAPPING: Record<string, PlaywrightAgent | AppiumAgent | ApiAgent | NetworkAgent> = Object.freeze({
   // Whitebox Phase 1: Pre-reconnaissance (actual prompt name is 'pre-recon-code')
   // NOTE: Pre-recon is pure code analysis and doesn't use browser automation,
   // but assigning MCP server anyway for consistency and future extensibility
@@ -556,7 +712,7 @@ export const MCP_AGENT_MAPPING: Record<string, PlaywrightAgent | AppiumAgent | A
   // Mobile reporting
   'mobile/report': 'appium-agent1',
 
-  // API agents — no browser/device automation, only Bash+curl + shannon-helper
+  // API agents — no browser/device automation, only Bash+curl + gandalf-helper
   'api/discovery': 'api-only',
   'api/auth-mapper': 'api-only',
   'api/vuln-injection': 'api-only',
@@ -570,6 +726,24 @@ export const MCP_AGENT_MAPPING: Record<string, PlaywrightAgent | AppiumAgent | A
   'api/exploit-ssrf': 'api-only',
   'api/exploit-authz': 'api-only',
   'api/report': 'api-only',
+
+  // Network agents — no browser/device automation, only Bash + native CLI
+  // tools (nmap, NetExec, impacket, certipy, hashcat, etc.).
+  'network/discovery': 'network-only',
+  'network/enumeration': 'network-only',
+  'network/auth-mapper': 'network-only',
+  'network/vuln-services': 'network-only',
+  'network/vuln-ad': 'network-only',
+  'network/vuln-protocols': 'network-only',
+  'network/vuln-creds': 'network-only',
+  'network/vuln-configs': 'network-only',
+  'network/exploit-services': 'network-only',
+  'network/exploit-ad': 'network-only',
+  'network/exploit-relay': 'network-only',
+  'network/exploit-creds': 'network-only',
+  'network/exploit-configs': 'network-only',
+  'network/postex-sim': 'network-only',
+  'network/report': 'network-only',
 });
 
 // Direct agent-to-validator mapping - much simpler than pattern matching
@@ -722,6 +896,56 @@ export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze
 
   // API report
   'api-report': async (sourceDir: string, logger: ActivityLogger): Promise<boolean> => {
+    const reportFile = path.join(
+      sourceDir,
+      'deliverables',
+      'final_report.md'
+    );
+    const reportExists = await fs.pathExists(reportFile);
+    if (!reportExists) {
+      logger.error('Missing required deliverable: final_report.md');
+    }
+    return reportExists;
+  },
+
+  // Network: discovery + enumeration + auth-mapper
+  'network-discovery': async (sourceDir: string): Promise<boolean> => {
+    const file = path.join(sourceDir, 'deliverables', 'network_discovery.md');
+    return await fs.pathExists(file);
+  },
+  'network-enumeration': async (sourceDir: string): Promise<boolean> => {
+    const file = path.join(sourceDir, 'deliverables', 'network_enumeration.md');
+    return await fs.pathExists(file);
+  },
+  'network-auth-mapper': async (sourceDir: string, _logger: ActivityLogger, personaName?: string): Promise<boolean> => {
+    const file = personaName
+      ? path.join(sourceDir, 'deliverables', 'auth', `network_auth_map_${personaName}.md`)
+      : path.join(sourceDir, 'deliverables', 'network_auth_map.md');
+    return await fs.pathExists(file);
+  },
+
+  // Network vulnerability analysis (5 parallel)
+  'network-services-vuln': createVulnValidator('services'),
+  'network-ad-vuln': createVulnValidator('ad'),
+  'network-protocols-vuln': createVulnValidator('protocols'),
+  'network-creds-vuln': createVulnValidator('creds'),
+  'network-configs-vuln': createVulnValidator('configs'),
+
+  // Network exploitation (5 parallel — note relay-exploit pairs with protocols-vuln)
+  'network-services-exploit': createExploitValidator('services'),
+  'network-ad-exploit': createExploitValidator('ad'),
+  'network-relay-exploit': createExploitValidator('protocols'),
+  'network-creds-exploit': createExploitValidator('creds'),
+  'network-configs-exploit': createExploitValidator('configs'),
+
+  // Network post-exploit simulation
+  'network-postex-sim': async (sourceDir: string): Promise<boolean> => {
+    const file = path.join(sourceDir, 'deliverables', 'network_postex_sim.md');
+    return await fs.pathExists(file);
+  },
+
+  // Network report
+  'network-report': async (sourceDir: string, logger: ActivityLogger): Promise<boolean> => {
     const reportFile = path.join(
       sourceDir,
       'deliverables',

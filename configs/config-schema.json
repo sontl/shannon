@@ -91,8 +91,115 @@
         },
         "target": {
           "type": "string",
-          "enum": ["web", "mobile", "api"],
-          "description": "The target platform (defaults to web if not specified)"
+          "enum": ["web", "mobile", "api", "network"],
+          "description": "The target platform (defaults to web if not specified). 'network' selects the network graybox tier (15 agents, AD + protocol + service attacks)."
+        },
+        "network": {
+          "type": "object",
+          "description": "Network graybox pipeline settings. Required when pipeline.target is 'network'.",
+          "properties": {
+            "engagement_mode": {
+              "type": "string",
+              "enum": ["external", "internal", "hybrid"],
+              "description": "Engagement perspective. external = no foothold, internet-facing only. internal = assumed-breach / VPN-equivalent. hybrid = both. Default: hybrid."
+            },
+            "scope": {
+              "type": "object",
+              "description": "Target network scope.",
+              "properties": {
+                "targets": {
+                  "type": "array",
+                  "items": {"type": "string", "minLength": 1, "maxLength": 255},
+                  "minItems": 1,
+                  "maxItems": 256,
+                  "description": "IP addresses, CIDR ranges, or hostnames in scope."
+                },
+                "excludes": {
+                  "type": "array",
+                  "items": {"type": "string", "minLength": 1, "maxLength": 255},
+                  "maxItems": 256,
+                  "description": "IPs/CIDRs/hostnames explicitly out of scope (must not be probed)."
+                }
+              },
+              "required": ["targets"],
+              "additionalProperties": false
+            },
+            "ad": {
+              "type": "object",
+              "description": "Active Directory settings. Disabled = skip the network-ad-* agents.",
+              "properties": {
+                "enabled": {"type": "boolean", "default": true},
+                "domain": {"type": "string", "minLength": 1, "maxLength": 255, "description": "AD domain name, e.g. corp.local. Auto-discovered when omitted."},
+                "dc_ip": {"type": "string", "minLength": 1, "maxLength": 64, "description": "Domain controller IP for explicit targeting. Auto-discovered when omitted."}
+              },
+              "required": ["enabled"],
+              "additionalProperties": false
+            },
+            "scanners": {
+              "type": "object",
+              "description": "Vulnerability scanner selection.",
+              "properties": {
+                "vuln_scanner": {
+                  "type": "string",
+                  "enum": ["nuclei", "openvas", "nessus", "none"],
+                  "description": "FOSS one-shot (nuclei), heavy compliance-grade (openvas), licensed (nessus), or skip entirely."
+                },
+                "nessus_license_env": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255,
+                  "description": "Environment variable name holding the Nessus license key. Required when vuln_scanner is 'nessus'."
+                }
+              },
+              "required": ["vuln_scanner"],
+              "additionalProperties": false
+            },
+            "relay": {
+              "type": "object",
+              "description": "Broadcast-domain relay attack settings (LLMNR/NBT-NS/mDNS/IPv6). Disabled by default — opt-in only.",
+              "properties": {
+                "enabled": {"type": "boolean", "default": false},
+                "duration_minutes": {"type": "integer", "minimum": 1, "maximum": 240, "default": 30, "description": "Time-box for Responder/mitm6 listener."},
+                "network_mode": {"type": "string", "enum": ["host", "bridge"], "default": "host", "description": "host = multicast works (required for Responder/mitm6). bridge = isolated, multicast fails."}
+              },
+              "required": ["enabled"],
+              "additionalProperties": false
+            },
+            "cracking": {
+              "type": "object",
+              "description": "Hash cracking pipeline settings (hashcat / john).",
+              "properties": {
+                "enabled": {"type": "boolean", "default": true},
+                "budget_minutes": {"type": "integer", "minimum": 1, "maximum": 1440, "default": 30, "description": "Max wall-clock per engagement."},
+                "compute": {"type": "string", "enum": ["cpu", "gpu", "cloud"], "default": "cpu"},
+                "wordlist": {"type": "string", "minLength": 1, "maxLength": 1000, "description": "Path to wordlist inside the container. Defaults to a bundled rockyou subset."}
+              },
+              "required": ["enabled", "budget_minutes", "compute"],
+              "additionalProperties": false
+            },
+            "safety": {
+              "type": "object",
+              "description": "Safety rails for production engagements.",
+              "properties": {
+                "lockout_threshold": {"type": "integer", "minimum": 1, "maximum": 100, "default": 3, "description": "Max auth attempts per user per hour (password spray, brute force)."},
+                "coercion_authorized": {"type": "boolean", "default": false, "description": "Permit PetitPotam/DFSCoerce/PrinterBug against production DCs. Off by default — requires explicit RoE approval."},
+                "avoid_production_dcs": {"type": "boolean", "default": true, "description": "If true, exploit-ad refuses to attempt operations that could destabilize production DCs."}
+              },
+              "required": ["lockout_threshold", "coercion_authorized", "avoid_production_dcs"],
+              "additionalProperties": false
+            },
+            "attack_framework": {
+              "type": "object",
+              "description": "MITRE ATT&CK version pinning for technique tagging.",
+              "properties": {
+                "attack_version": {"type": "integer", "minimum": 10, "maximum": 50, "default": 17, "description": "ATT&CK release version. Pinned so technique IDs are stable; update intentionally."}
+              },
+              "required": ["attack_version"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["engagement_mode", "scope", "ad", "scanners", "relay", "cracking", "safety", "attack_framework"],
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

@@ -248,6 +248,12 @@ export const parseConfig = async (configPath: string): Promise<Config> => {
       );
     }
 
+    // 5b. FAILSAFE_SCHEMA parses booleans/integers as strings (security guard).
+    // The network config block expects native types — coerce in-place so the
+    // JSON schema validator sees the right shape. Bounded to pipeline.network
+    // to keep the security guard intact for the rest of the config.
+    coerceNetworkConfigTypes(config as Config);
+
     // 6. Validate schema, security rules, and return
     validateConfig(config as Config);
 
@@ -267,6 +273,51 @@ export const parseConfig = async (configPath: string): Promise<Config> => {
     );
   }
 };
+
+// Convert string "true"/"false" → boolean and numeric strings → number for
+// well-known leaf fields inside pipeline.network.*. The YAML parser uses
+// FAILSAFE_SCHEMA (security-hardened, no auto-typing) which leaves these as
+// strings; the JSON schema expects native types.
+//
+// Scoped narrowly so the FAILSAFE security guarantee is preserved everywhere else.
+function coerceNetworkConfigTypes(config: Config): void {
+  const net = config.pipeline?.network as unknown as Record<string, unknown> | undefined;
+  if (!net || typeof net !== 'object') return;
+
+  const toBool = (v: unknown): boolean | unknown =>
+    v === 'true' ? true : v === 'false' ? false : v;
+  const toInt = (v: unknown): number | unknown =>
+    typeof v === 'string' && /^-?\d+$/.test(v) ? Number(v) : v;
+
+  const ad = net.ad as Record<string, unknown> | undefined;
+  if (ad && typeof ad === 'object') {
+    if ('enabled' in ad) ad.enabled = toBool(ad.enabled);
+  }
+
+  const relay = net.relay as Record<string, unknown> | undefined;
+  if (relay && typeof relay === 'object') {
+    if ('enabled' in relay) relay.enabled = toBool(relay.enabled);
+    if ('duration_minutes' in relay) relay.duration_minutes = toInt(relay.duration_minutes);
+  }
+
+  const cracking = net.cracking as Record<string, unknown> | undefined;
+  if (cracking && typeof cracking === 'object') {
+    if ('enabled' in cracking) cracking.enabled = toBool(cracking.enabled);
+    if ('budget_minutes' in cracking) cracking.budget_minutes = toInt(cracking.budget_minutes);
+  }
+
+  const safety = net.safety as Record<string, unknown> | undefined;
+  if (safety && typeof safety === 'object') {
+    if ('lockout_threshold' in safety) safety.lockout_threshold = toInt(safety.lockout_threshold);
+    if ('coercion_authorized' in safety) safety.coercion_authorized = toBool(safety.coercion_authorized);
+    if ('avoid_production_dcs' in safety) safety.avoid_production_dcs = toBool(safety.avoid_production_dcs);
+  }
+
+  const af = net.attack_framework as Record<string, unknown> | undefined;
+  if (af && typeof af === 'object') {
+    if ('attack_version' in af) af.attack_version = toInt(af.attack_version);
+  }
+}
 
 const validateConfig = (config: Config): void => {
   if (!config || typeof config !== 'object') {
@@ -599,6 +650,7 @@ export const distributeConfig = (config: Config | null): DistributedConfig => {
   const authentication = config?.authentication || null;
   const schemas = config?.context?.schemas || [];
   const mobile = config?.mobile || null;
+  const network = config?.pipeline?.network || null;
 
   return {
     avoid: avoid.map(sanitizeRule),
@@ -606,6 +658,7 @@ export const distributeConfig = (config: Config | null): DistributedConfig => {
     authentication: authentication ? migrateAuthentication(authentication) : null,
     schemas: schemas.map(sanitizeSchema),
     mobile,
+    network,
   };
 };
 

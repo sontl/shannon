@@ -96,17 +96,83 @@ export interface Config {
   pipeline?: PipelineConfig;
   context?: ContextConfig;
   mobile?: MobileConfig;
+  network?: NetworkConfig;
 }
 
 export type RetryPreset = 'default' | 'subscription';
 
-export type PipelineTarget = 'web' | 'mobile' | 'api';
+export type PipelineTarget = 'web' | 'mobile' | 'api' | 'network';
 
 export interface PipelineConfig {
   retry_preset?: RetryPreset;
   max_concurrent_pipelines?: number;
   mode?: 'whitebox' | 'graybox';
   target?: PipelineTarget;
+  network?: NetworkPipelineConfig;
+}
+
+export type EngagementMode = 'external' | 'internal' | 'hybrid';
+export type VulnScanner = 'nuclei' | 'openvas' | 'nessus' | 'none';
+export type CrackingCompute = 'cpu' | 'gpu' | 'cloud';
+
+export interface NetworkScope {
+  targets: string[];
+  excludes?: string[];
+}
+
+export interface NetworkAdConfig {
+  enabled: boolean;
+  domain?: string;
+  dc_ip?: string;
+}
+
+export interface NetworkScannersConfig {
+  vuln_scanner: VulnScanner;
+  nessus_license_env?: string;
+}
+
+export interface NetworkRelayConfig {
+  enabled: boolean;
+  duration_minutes: number;
+  network_mode?: 'host' | 'bridge';
+}
+
+export interface NetworkCrackingConfig {
+  enabled: boolean;
+  budget_minutes: number;
+  compute: CrackingCompute;
+  wordlist?: string;
+}
+
+export interface NetworkSafetyConfig {
+  lockout_threshold: number;
+  coercion_authorized: boolean;
+  avoid_production_dcs: boolean;
+}
+
+export interface NetworkAttackFrameworkConfig {
+  attack_version: number;
+}
+
+// Inline pipeline-level network settings (under pipeline.network.*).
+// Required when pipeline.target === 'network'.
+export interface NetworkPipelineConfig {
+  engagement_mode: EngagementMode;
+  scope: NetworkScope;
+  ad: NetworkAdConfig;
+  scanners: NetworkScannersConfig;
+  relay: NetworkRelayConfig;
+  cracking: NetworkCrackingConfig;
+  safety: NetworkSafetyConfig;
+  attack_framework: NetworkAttackFrameworkConfig;
+}
+
+// Top-level network config — for any settings that don't fit cleanly under
+// pipeline.network.* (e.g. shared infra references). Reserved for future use;
+// currently empty so YAML config files can declare a `network:` key alongside
+// `mobile:` for symmetry without being rejected by the schema.
+export interface NetworkConfig {
+  // intentionally empty for now; extend as needed.
 }
 
 export interface DistributedConfig {
@@ -115,4 +181,5 @@ export interface DistributedConfig {
   authentication: Authentication | null;
   schemas: SchemaHint[];
   mobile: MobileConfig | null;
+  network: NetworkPipelineConfig | null;
 }

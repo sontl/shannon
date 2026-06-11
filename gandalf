@@ -46,7 +46,7 @@ Usage:
   ./gandalf workspaces                              List all workspaces
   ./gandalf logs ID=<workflow-id>                   Tail logs for a specific workflow
   ./gandalf trace [WORKSPACE=<name>] [PERSONA=<p>]  Open Playwright trace viewer for a run
-  ./gandalf stop                                    Stop all containers
+  ./gandalf stop                                    Pause containers (fast resume on next start)
   ./gandalf help                                    Show this help message
 
 Required for every 'start':
@@ -86,7 +86,9 @@ Options for 'trace':
                          markdown for the picked trace, so reasoning and UI line up
 
 Options for 'stop':
-  CLEAN=true             Remove all data including volumes
+  (default)              Pause containers in place — next 'start' resumes in seconds
+  DOWN=true              Remove containers and networks, keep volumes (Temporal DB survives)
+  CLEAN=true             Remove containers, networks, AND volumes (full reset)
 
 Examples:
   ./gandalf start URL=https://example.com REPO=repo-name
@@ -125,6 +127,7 @@ parse_args() {
       OUTPUT=*) OUTPUT="${arg#OUTPUT=}" ;;
       ID=*) ID="${arg#ID=}" ;;
       CLEAN=*) CLEAN="${arg#CLEAN=}" ;;
+      DOWN=*) DOWN="${arg#DOWN=}" ;;
       PIPELINE_TESTING=*) PIPELINE_TESTING="${arg#PIPELINE_TESTING=}" ;;
       REBUILD=*) REBUILD="${arg#REBUILD=}" ;;
       ROUTER=*) ROUTER="${arg#ROUTER=}" ;;
@@ -145,6 +148,27 @@ is_temporal_ready() {
     temporal operator cluster health --address localhost:7233 2>/dev/null | grep -q "SERVING"
 }
 
+# True if any compose-managed container exists (running OR stopped). After a
+# `gandalf stop` (which now only pauses), the containers persist in Exited
+# state — this lets ensure_containers resume them instead of recreating.
+has_existing_containers() {
+  [ -n "$(docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE ps -aq 2>/dev/null)" ]
+}
+
+# Poll until Temporal reports healthy (up to ~60s). Returns 1 on timeout so the
+# caller can decide whether to fall back to a full recreate.
+wait_for_temporal() {
+  echo "Waiting for Temporal to be ready..."
+  for i in $(seq 1 30); do
+    if is_temporal_ready; then
+      echo "Temporal is ready!"
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
 # Ensure containers are running with correct mounts
 ensure_containers() {
   # If custom OUTPUT_DIR is set, always refresh worker to ensure correct volume mount
@@ -159,7 +183,19 @@ ensure_containers() {
     return 0
   fi
 
-  # Need to start containers
+  # Fast path: containers already exist (paused by `gandalf stop`) and no
+  # rebuild was requested — resume them in place. This skips image build +
+  # container/network recreation, bringing Temporal back in seconds.
+  if [ "$REBUILD" != "true" ] && has_existing_containers; then
+    echo "Resuming paused Gandalf containers..."
+    docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE start
+    if wait_for_temporal; then
+      return 0
+    fi
+    echo "Resume did not bring Temporal up — recreating containers..."
+  fi
+
+  # Slow path: create (or rebuild) containers from scratch.
   echo "Starting Gandalf containers..."
   if [ "$REBUILD" = "true" ]; then
     # Force rebuild without cache (use when code changes aren't being picked up)
@@ -168,19 +204,10 @@ ensure_containers() {
   fi
   docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE up -d --build
 
-  # Wait for Temporal to be ready
-  echo "Waiting for Temporal to be ready..."
-  for i in $(seq 1 30); do
-    if is_temporal_ready; then
-      echo "Temporal is ready!"
-      return 0
-    fi
-    if [ "$i" -eq 30 ]; then
-      echo "Timeout waiting for Temporal"
-      exit 1
-    fi
-    sleep 2
-  done
+  if ! wait_for_temporal; then
+    echo "Timeout waiting for Temporal"
+    exit 1
+  fi
 }
 
 cmd_start() {
@@ -773,9 +800,19 @@ cmd_stop() {
   parse_args "$@"
 
   if [ "$CLEAN" = "true" ]; then
+    # Full teardown: remove containers, networks, AND volumes (Temporal DB lost).
+    echo "Removing all containers, networks, and volumes..."
     docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE --profile router down -v
-  else
+  elif [ "$DOWN" = "true" ]; then
+    # Remove containers + networks but keep volumes (Temporal DB survives).
+    echo "Removing containers and networks (volumes preserved)..."
     docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE --profile router down
+  else
+    # Default: pause containers in place so the next `start` resumes in seconds
+    # instead of recreating images, containers, and networks.
+    echo "Pausing containers (next 'start' resumes fast)..."
+    echo "  Use 'stop DOWN=true' to remove containers, 'stop CLEAN=true' to also drop volumes."
+    docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE --profile router stop
   fi
 }
 

@@ -1,0 +1,42 @@
+# Gandalf Gray-Box Penetration Test Configuration
+# Target: FrancomGroup (https://francomgroup.com/legal/)
+#
+# No prior context on this target. This is a dynamic (DAST) web graybox run:
+# discovery crawls and maps the site itself. No authentication is configured
+# because the in-scope page is public — add an `authentication:` block later
+# if a login is discovered and is in scope.
+#
+# AUTHORIZATION: only run this with an explicit, signed RoE for francomgroup.com.
+
+pipeline:
+  mode: graybox
+  target: web
+  # Keep concurrency modest against an unknown production site to avoid
+  # tripping rate limits / WAF rules.
+  max_concurrent_pipelines: 2
+
+rules:
+  focus:
+    # We have no map yet — these are starting hints, not hard targets.
+    # Discovery is free to expand beyond them.
+    - description: "Crawl and fingerprint the public legal section first"
+      type: path
+      url_path: "/legal/"
+    - description: "Map any contact / lead-capture forms for injection & validation flaws"
+      type: path
+      url_path: "/contact"
+    - description: "Probe for common CMS exposure (this looks like a marketing site)"
+      type: path
+      url_path: "/wp-admin"
+
+  avoid:
+    # Safety rails for a live production site with no context.
+    - description: "Do not submit, pay, or trigger any billing / payment flow"
+      type: path
+      url_path: "/checkout"
+    - description: "Do not attempt account deletion or destructive admin actions"
+      type: path
+      url_path: "/admin"
+    - description: "Do not exercise password-reset or account-recovery flows"
+      type: path
+      url_path: "/reset-password"

@@ -4,7 +4,12 @@ audit-logs/
 credentials/
 dist/
 repos/
+# Contains a live sandbox test credential — must never be committed.
+configs/core-practice-graybox.yaml
 .DS_Store
 .history/
 docs/
 benchmarks/
+sample-reports/
+
+.playwright-mcp/

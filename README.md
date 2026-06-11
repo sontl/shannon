@@ -6,6 +6,27 @@ AI-powered penetration testing framework for TECHVIFY internal security audits. 
 
 ---
 
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Pipelines](#pipelines)
+- [Mode Usage](#mode-usage)
+- [Workspaces & Resume](#workspaces--resume)
+- [Multi-Persona Testing](#multi-persona-testing)
+- [Remediation Verification](#remediation-verification)
+- [Configuration](#configuration)
+- [Provider Options](#provider-options)
+- [CLI Reference](#cli-reference)
+- [Monitoring](#monitoring)
+- [Architecture](#architecture)
+- [Repository Layout](#repository-layout)
+- [Development](#development)
+- [Troubleshooting](#troubleshooting)
+- [Security](#security)
+- [License](#license)
+
+---
+
 ## Quick Start
 
 **Prerequisites:** Docker, an Anthropic API key (or Bedrock / Vertex / router credentials), and a target documentation folder under `./repos/`.

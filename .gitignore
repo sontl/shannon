@@ -4,8 +4,11 @@ audit-logs/
 credentials/
 dist/
 repos/
-# Contains a live sandbox test credential — must never be committed.
+# Contain live sandbox test credentials — must never be committed.
 configs/core-practice-graybox.yaml
+configs/core-practice-admin-rbac.yaml
+configs/core-practice-patient.yaml
+configs/core-practice-kiosk.yaml
 .DS_Store
 .history/
 docs/
@@ -13,3 +16,6 @@ benchmarks/
 sample-reports/
 
 .playwright-mcp/
+
+.github/
+scripts/__pycache__

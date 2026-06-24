@@ -9,6 +9,20 @@ sessions/
 deliverables/
 xben-benchmark-results/
 .claude/
+# Output + input dirs — bind-mounted at runtime (docker-compose volumes), so
+# baking them into the image is pure waste. audit-logs in particular grows
+# every run; left un-ignored it balloons the image build over time.
+audit-logs/
+repos/
+credentials/
+.history/
+.playwright-mcp/
+
+# Dev-only / regenerated artifacts not needed in the worker image
+audit-viewer/
+assets/
+benchmarks/
+dist/
 
 # Git
 .git/

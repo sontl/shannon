@@ -1,0 +1,11 @@
+{
+  "name": "gandalf-pentest",
+  "version": "0.1.0",
+  "description": "AI-powered pentest framework wrapped as Claude Code commands. Targets: web/mobile/api/network graybox + whitebox. Commands shell out to the ./gandalf CLI one directory above the plugin root; the Temporal workflow engine, Docker stack, and all pentest logic run unchanged in the framework itself.",
+  "author": {
+    "name": "Eli Nguyen",
+    "email": "eli.nguyen@techvify.com.vn"
+  },
+  "license": "AGPL-3.0",
+  "keywords": ["pentest", "security", "dast", "graybox", "whitebox", "temporal", "appsec"]
+}

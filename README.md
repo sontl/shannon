@@ -233,6 +233,7 @@ Three model tiers used internally: `small` (haiku, summarization), `medium` (son
 ./gandalf logs ID=<workflow-id>                                                Tail workflow logs
 ./gandalf workspaces                                                           List all workspaces
 ./gandalf trace [WORKSPACE=<name>] [PERSONA=<p>] [AGENT=<a>]                   Open Playwright trace viewer
+./gandalf report <report.md>                                                   Export a report MD to a branded DOCX/PDF
 ./gandalf stop [CLEAN=true]                                                    Stop containers (CLEAN=true removes volumes)
 ./gandalf help                                                                 Show help
 ```
@@ -252,6 +253,23 @@ Three model tiers used internally: `small` (haiku, summarization), `medium` (son
 | `PIPELINE_TESTING=true` | Use minimal prompts + 10s retries for fast iteration |
 | `REBUILD=true` | Force `docker compose build --no-cache` before run |
 | `ROUTER=true` | Route through claude-code-router for multi-model support |
+
+### `report` — export a report to DOCX/PDF
+
+Turns a report markdown file into a polished, branded Word document — A4 portrait, styled tables (bordered, navy header row, row banding), a generated cover page, justified body text — and a PDF when LibreOffice is available.
+
+```bash
+./gandalf report audit-logs/<run>/deliverables/final_report.md
+# -> final_report.docx (+ final_report.pdf) beside the input
+```
+
+**No flags — fixed house format.** Everything is automatic:
+
+- **Cover page** — `CONFIDENTIAL` + a brand-blue title (matches the Techvify header) + target + a curated metadata table, all read from the report's own `Document Control` table. Nothing to pass in.
+- **Branding** ships by default: `scripts/report-template.docx` carries the Techvify header/footer + logo. Replace that file to use a different letterhead (any `.docx` works as the reference — its header/footer/theme are reused, its body is ignored).
+- **Output** is written beside the input as `<workflow>_final_report.docx`; a PDF is produced too when LibreOffice is installed.
+
+**Prereqs:** `pandoc` and `python-docx` (`python3 -m pip install python-docx`); PDF additionally needs LibreOffice (`brew install --cask libreoffice`).
 
 ---
 

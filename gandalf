@@ -46,6 +46,7 @@ Usage:
   ./gandalf workspaces                              List all workspaces
   ./gandalf logs ID=<workflow-id>                   Tail logs for a specific workflow
   ./gandalf trace [WORKSPACE=<name>] [PERSONA=<p>]  Open Playwright trace viewer for a run
+  ./gandalf report <report.md>                      Build a branded DOCX/PDF from a report markdown
   ./gandalf stop                                    Pause containers (fast resume on next start)
   ./gandalf help                                    Show this help message
 
@@ -84,6 +85,13 @@ Options for 'trace':
   INDEX=<n>              Open the Nth trace from the LIST (1-based)
   EVIDENCE=true          Skip the viewer; print the trace zip + agent log + deliverable
                          markdown for the picked trace, so reasoning and UI line up
+
+Options for 'report':
+  <report.md>            Report markdown (e.g. audit-logs/<run>/deliverables/final_report.md)
+                         No flags — fixed house format. Cover text is read from the report's
+                         'Document Control' table; brand uses scripts/report-template.docx if present.
+                         Writes <report>.docx beside the input (+ .pdf if LibreOffice is installed).
+                         Needs: pandoc + python-docx.
 
 Options for 'stop':
   (default)              Pause containers in place — next 'start' resumes in seconds
@@ -817,10 +825,35 @@ cmd_stop() {
 }
 
 # Main command dispatch
+# Build a polished, branded DOCX/PDF from a report markdown file.
+# Thin pass-through to scripts/build-report.py — all args/flags forwarded verbatim.
+cmd_report() {
+  local SCRIPT_DIR BUILDER
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  BUILDER="$SCRIPT_DIR/scripts/build-report.py"
+  if [ ! -f "$BUILDER" ]; then
+    echo "ERROR: report builder not found at $BUILDER" >&2
+    exit 1
+  fi
+  if ! command -v pandoc >/dev/null 2>&1; then
+    echo "ERROR: 'pandoc' is required (brew install pandoc)" >&2
+    exit 1
+  fi
+  if ! python3 -c "import docx" >/dev/null 2>&1; then
+    echo "ERROR: python-docx is required (python3 -m pip install python-docx)" >&2
+    exit 1
+  fi
+  python3 "$BUILDER" "$@"
+}
+
 case "${1:-help}" in
   start)
     shift
     cmd_start "$@"
+    ;;
+  report)
+    shift
+    cmd_report "$@"
     ;;
   logs)
     shift
